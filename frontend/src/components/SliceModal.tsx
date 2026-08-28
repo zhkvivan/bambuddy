@@ -36,6 +36,7 @@ import {
   type Slot,
 } from '../utils/slicePresetPicker';
 import { getGlobalTrayId } from '../utils/amsHelpers';
+import { getColorName } from '../utils/colors';
 
 export type SliceSource =
   | { kind: 'libraryFile'; id: number; filename: string }
@@ -449,15 +450,19 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
     status.ams.forEach((ams, amsIndex) => ams.tray.forEach((tray, trayIndex) => {
       if (!tray.tray_type && tray.exists === false) return;
       const material = tray.tray_sub_brands || tray.tray_type || 'Неизвестный филамент';
+      const hex = tray.tray_color?.replace('#', '').slice(0, 6);
+      const colour = hex ? ` · ${getColorName(`#${hex}`, material)} (#${hex.toUpperCase()})` : '';
       options.push({
         id: getGlobalTrayId(ams.id, trayIndex, false),
-        label: `AMS-${String.fromCharCode(65 + amsIndex)} · ${trayIndex + 1}: ${material}`,
+        label: `AMS-${String.fromCharCode(65 + amsIndex)} · ${trayIndex + 1}: ${material}${colour}`,
       });
     }));
     status.vt_tray.forEach((tray, trayIndex) => {
       if (!tray.tray_type && tray.exists === false) return;
       const material = tray.tray_sub_brands || tray.tray_type || 'Неизвестный филамент';
-      options.push({ id: getGlobalTrayId(255, trayIndex, true), label: `Внешняя подача: ${material}` });
+      const hex = tray.tray_color?.replace('#', '').slice(0, 6);
+      const colour = hex ? ` · ${getColorName(`#${hex}`, material)} (#${hex.toUpperCase()})` : '';
+      options.push({ id: getGlobalTrayId(255, trayIndex, true), label: `Внешняя подача: ${material}${colour}` });
     });
     return options;
   }, [printerStatusQuery.data]);
