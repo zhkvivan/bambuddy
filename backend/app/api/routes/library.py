@@ -49,6 +49,7 @@ from backend.app.schemas.library import (
     FileDuplicate,
     FileListResponse,
     FileMoveRequest,
+    MergeOnPlateRequest,
     FileResponse as FileResponseSchema,
     FileUpdate,
     FileUploadResponse,
@@ -2212,6 +2213,66 @@ async def list_files(
         )
 
     return file_list
+
+
+@router.post("/files/merge-on-plate", response_model=FileUploadResponse)
+async def merge_library_files_on_plate(
+    request: MergeOnPlateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(require_permission_if_auth_enabled(Permission.LIBRARY_UPLOAD)),
+):
+    """Combine selected unsliced project 3MFs and return the new library file."""
+    if len(request.file_ids) < 2:
+        raise HTTPException(status_code=400, detail="Select at least two 3MF files")
+    if len(request.file_ids) > 50:
+        raise HTTPException(status_code=400, detail="No more than 50 files can be combined at once")
+    filename = request.filename.strip()
+    if not filename.lower().endswith(".3mf"):
+        filename += ".3mf"
+    try:
+        validate_print_filename(filename)
+    except InvalidFilenameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    can_read_all = current_user is None or current_user.has_permission(Permission.LIBRARY_READ_ALL.value)
+    projects: list[bytes] = []
+    first_folder_id: int | None = None
+    for index, file_id in enumerate(request.file_ids):
+        row = await db.get(LibraryFile, file_id)
+        row = _ensure_library_file_visible(row, current_user, can_read_all)
+        lower = row.filename.lower()
+        if not lower.endswith(".3mf") or lower.endswith(".gcode.3mf"):
+            raise HTTPException(status_code=400, detail=f"{row.filename} is not an unsliced project 3MF")
+        path = Path(row.file_path) if row.is_external else Path(app_settings.base_dir) / row.file_path
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"{row.filename} is missing on disk")
+        projects.append(path.read_bytes())
+        if index == 0:
+            first_folder_id = row.folder_id
+
+    from backend.app.services.three_mf_merge import merge_projects_on_plate
+
+    try:
+        merged = merge_projects_on_plate(projects)
+        new_file, _ = await save_3mf_bytes_to_library(
+            db,
+            file_bytes=merged,
+            filename=filename,
+            folder_id=first_folder_id,
+            source_type="merged",
+            owner_id=current_user.id if current_user else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return FileUploadResponse(
+        id=new_file.id,
+        filename=new_file.filename,
+        file_type=new_file.file_type,
+        file_size=new_file.file_size,
+        thumbnail_path=new_file.thumbnail_path,
+        metadata=new_file.file_metadata,
+    )
 
 
 @router.post("/files", response_model=FileUploadResponse)

@@ -3854,6 +3854,11 @@ export default {
 
   // File manager
   fileManager: {
+    mergeOnPlate: {
+      action: 'Combine on one plate',
+      hint: 'Create one project from the selected 3MF files and auto-arrange it before slicing',
+      success: 'Combined project created — choose slicing settings',
+    },
     variants: {
       badge: '{{count}} versions',
       groupAction: 'Group as versions',

@@ -43,6 +43,7 @@ export type SliceSource =
 interface SliceModalProps {
   source: SliceSource;
   onClose: () => void;
+  initialAutoArrange?: boolean;
 }
 
 function toRefValue(ref: PresetRef | null): string {
@@ -207,7 +208,7 @@ function colourInputValue(raw: string | null | undefined): string {
     : SLICER_DEFAULT_COLOUR;
 }
 
-export function SliceModal({ source, onClose }: SliceModalProps) {
+export function SliceModal({ source, onClose, initialAutoArrange = false }: SliceModalProps) {
   const { t } = useTranslation();
   const { trackJob } = useSliceJobTracker();
   const queryClient = useQueryClient();
@@ -268,7 +269,7 @@ export function SliceModal({ source, onClose }: SliceModalProps) {
   // enabled in embedded mode, unlike the process-level options around
   // them — these act on the geometry, whichever config drives the slice.
   const [autoOrient, setAutoOrient] = useState(false);
-  const [autoArrange, setAutoArrange] = useState(false);
+  const [autoArrange, setAutoArrange] = useState(initialAutoArrange);
   const [copiesOnPlate, setCopiesOnPlate] = useState(1);
 
   // #2622: process settings the designer changed away from the stock preset,

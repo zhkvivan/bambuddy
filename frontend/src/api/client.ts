@@ -7211,6 +7211,11 @@ export const api = {
     }
     return request<LibraryFileListItem[]>(`/library/files?${params}`);
   },
+  mergeLibraryFilesOnPlate: (fileIds: number[], filename: string) =>
+    request<LibraryFileUploadResponse>('/library/files/merge-on-plate', {
+      method: 'POST',
+      body: JSON.stringify({ file_ids: fileIds, filename }),
+    }),
   getLibraryFolderReadme: (folderId: number) =>
     request<{ filename: string; content: string; truncated: boolean }>(
       `/library/folders/${folderId}/readme`,

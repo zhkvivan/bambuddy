@@ -289,6 +289,13 @@ class FileMoveRequest(BaseModel):
     folder_id: int | None = None  # None = move to root
 
 
+class MergeOnPlateRequest(BaseModel):
+    """Source project files to combine into one unsliced 3MF."""
+
+    file_ids: list[int]
+    filename: str = "combined.3mf"
+
+
 class FileUploadResponse(BaseModel):
     """Schema for file upload response."""
 

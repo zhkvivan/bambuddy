@@ -1022,7 +1022,8 @@ export function FileManagerPage() {
   const [linkFolder, setLinkFolder] = useState<LibraryFolderTree | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'file' | 'folder' | 'bulk'; id: number; count?: number } | null>(null);
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
-  const [sliceFile, setSliceFile] = useState<LibraryFileListItem | null>(null);
+  const [sliceFile, setSliceFile] = useState<{ id: number; filename: string } | null>(null);
+  const [arrangeSliceFile, setArrangeSliceFile] = useState(false);
   // Slicer Pipelines (#1425 PR B) — file gets "Run with pipeline" action.
   const [runPipelineFile, setRunPipelineFile] = useState<LibraryFileListItem | null>(null);
   const [renameItem, setRenameItem] = useState<{ type: 'file' | 'folder'; id: number; name: string } | null>(null);
@@ -1585,6 +1586,31 @@ export function FileManagerPage() {
     if (!files) return [];
     return files.filter(f => selectedFiles.includes(f.id) && isSlicedFile(f.filename));
   }, [files, selectedFiles, isSlicedFile]);
+
+  const selectedProjectFiles = useMemo(() => {
+    if (!files) return [];
+    return files.filter(f => selectedFiles.includes(f.id)
+      && f.filename.toLowerCase().endsWith('.3mf')
+      && !f.filename.toLowerCase().endsWith('.gcode.3mf'));
+  }, [files, selectedFiles]);
+
+  const mergeOnPlateMutation = useMutation({
+    mutationFn: () => {
+      const stem = selectedProjectFiles
+        .map(file => file.filename.replace(/\.3mf$/i, ''))
+        .join('-') || 'combined';
+      return api.mergeLibraryFilesOnPlate(selectedProjectFiles.map(file => file.id), `${stem}.3mf`);
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ['library-files'] });
+      const merged = await api.getLibraryFile(result.id);
+      setSelectedFiles([]);
+      setArrangeSliceFile(true);
+      setSliceFile(merged);
+      showToast(t('fileManager.mergeOnPlate.success'), 'success');
+    },
+    onError: (error: Error) => showToast(error.message, 'error'),
+  });
 
   // The clicked file's variant group, so printing one member offers the rest
   // without the user re-selecting them (#2570).
@@ -2326,6 +2352,20 @@ export function FileManagerPage() {
                         <span className="hidden sm:inline">{t('fileManager.variants.groupAction')}</span>
                       </Button>
                     )}
+                    {selectedProjectFiles.length === selectedFiles.length && selectedProjectFiles.length >= 2 && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => mergeOnPlateMutation.mutate()}
+                        disabled={mergeOnPlateMutation.isPending || !hasPermission('library:upload')}
+                        title={t('fileManager.mergeOnPlate.hint')}
+                      >
+                        {mergeOnPlateMutation.isPending
+                          ? <Loader2 className="w-4 h-4 sm:mr-1 animate-spin" />
+                          : <Layers className="w-4 h-4 sm:mr-1" />}
+                        <span className="hidden sm:inline">{t('fileManager.mergeOnPlate.action')}</span>
+                      </Button>
+                    )}
                     <Button
                       variant="secondary"
                       size="sm"
@@ -2861,7 +2901,8 @@ export function FileManagerPage() {
       {sliceFile && (
         <SliceModal
           source={{ kind: 'libraryFile', id: sliceFile.id, filename: sliceFile.filename }}
-          onClose={() => setSliceFile(null)}
+          initialAutoArrange={arrangeSliceFile}
+          onClose={() => { setSliceFile(null); setArrangeSliceFile(false); }}
         />
       )}
 
