@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Minus, Plus, Search, X } from 'lucide-react';
 import { api, type LibraryFileListItem } from '../api/client';
@@ -38,6 +38,16 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Pro
   const [mode, setMode] = useState<'letters' | 'files'>('letters');
   const [rows, setRows] = useState<Item[]>([{ key: '', quantity: 1 }]);
   const [filter, setFilter] = useState('');
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const [focusRow, setFocusRow] = useState(0);
+
+  // Typing a word should feel like a tiny order form, not like filling out a
+  // dialog: focus the first line on open, and move it to each row added with
+  // Enter (or the add-row button).
+  useEffect(() => {
+    if (mode !== 'letters') return;
+    inputRefs.current[focusRow]?.focus();
+  }, [focusRow, mode, rows.length]);
 
   const files = useMemo(() => projectFiles(library), [library]);
   const filtered = useMemo(() => {
@@ -68,6 +78,10 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Pro
   const update = (index: number, patch: Partial<Item>) => {
     setRows((current) => current.map((row, i) => i === index ? { ...row, ...patch } : row));
   };
+  const addRow = () => {
+    setRows((current) => [...current, { key: '', quantity: 1 }]);
+    setFocusRow(rows.length);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={onClose}>
@@ -92,7 +106,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Pro
               <div className="space-y-2">
                 {rows.map((row, index) => (
                   <div className="flex items-center gap-2" key={index}>
-                    <input value={row.key} maxLength={40} onChange={(event) => update(index, { key: event.target.value })} placeholder="Буква или имя модели" className="min-w-0 flex-1 rounded-lg border border-bambu-dark-tertiary bg-bambu-dark px-3 py-2 text-white outline-none focus:border-bambu-green" />
+                    <input ref={(element) => { inputRefs.current[index] = element; }} value={row.key} maxLength={40} onChange={(event) => update(index, { key: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addRow(); } }} placeholder="Буква или имя модели" className="min-w-0 flex-1 rounded-lg border border-bambu-dark-tertiary bg-bambu-dark px-3 py-2 text-white outline-none focus:border-bambu-green" />
                     <Button variant="secondary" size="sm" onClick={() => update(index, { quantity: Math.max(1, row.quantity - 1) })}><Minus className="h-4 w-4" /></Button>
                     <span className="w-7 text-center text-white">{row.quantity}</span>
                     <Button variant="secondary" size="sm" onClick={() => update(index, { quantity: Math.min(50, row.quantity + 1) })}><Plus className="h-4 w-4" /></Button>
@@ -100,7 +114,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Pro
                   </div>
                 ))}
               </div>
-              <Button variant="secondary" size="sm" className="mt-4" onClick={() => setRows((current) => [...current, { key: '', quantity: 1 }])}><Plus className="mr-1 h-4 w-4" />Добавить строку</Button>
+              <Button variant="secondary" size="sm" className="mt-4" onClick={addRow}><Plus className="mr-1 h-4 w-4" />Добавить строку</Button>
             </>
           ) : (
             <>
