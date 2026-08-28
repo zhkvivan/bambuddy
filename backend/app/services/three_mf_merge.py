@@ -27,6 +27,53 @@ def _read_project(data: bytes) -> tuple[list[tuple[object, bytes]], dict[str, by
     return entries, mapped
 
 
+def _inline_external_geometry(
+    resources: ET.Element,
+    obj: ET.Element,
+    archive: dict[str, bytes],
+    next_id: int,
+) -> int:
+    """Move component geometry into the main model and return the next free id.
+
+    Bambu Studio's arrange pass drops a project when one build object points to
+    an external part while its siblings are inline. Flattening every source —
+    including the first/base project — gives the slicer one consistent model.
+    """
+    for component in obj.iter():
+        if _local_name(component.tag) != "component":
+            continue
+        path_attr = next((attr for attr in component.attrib if _local_name(attr) == "path"), None)
+        if path_attr is None:
+            continue
+        old_path = component.attrib[path_attr].lstrip("/")
+        if old_path not in archive:
+            raise ValueError(f"selected 3MF is missing geometry entry {old_path}")
+        geometry_root = ET.fromstring(archive[old_path])
+        geometry_resources = next((e for e in geometry_root if _local_name(e.tag) == "resources"), None)
+        source_object_id = component.get("objectid")
+        geometry_object = (
+            next(
+                (e for e in _children(geometry_resources, "object") if e.get("id") == source_object_id),
+                None,
+            )
+            if geometry_resources is not None
+            else None
+        )
+        if geometry_object is None:
+            raise ValueError(f"selected 3MF has no geometry object {source_object_id or '?'}")
+        imported_object = deepcopy(geometry_object)
+        imported_object.set("id", str(next_id))
+        component.set("objectid", str(next_id))
+        next_id += 1
+        for element in imported_object.iter():
+            for uuid_attr in list(element.attrib):
+                if _local_name(uuid_attr).lower() == "uuid":
+                    element.set(uuid_attr, str(uuid4()))
+        resources.append(imported_object)
+        del component.attrib[path_attr]
+    return next_id
+
+
 def merge_projects_on_plate(projects: list[bytes], *, plate: int = 1) -> bytes:
     """Place every object from ``projects`` on one plate in a new project.
 
@@ -57,6 +104,11 @@ def merge_projects_on_plate(projects: list[bytes], *, plate: int = 1) -> bytes:
 
     used_ids = {int(e.get("id")) for e in resources if e.get("id", "").isdigit()}
     next_id = max(used_ids, default=0) + 1
+    # Flatten the base project too. Previously only the second and subsequent
+    # files were inlined, and Bambu Studio silently discarded this first,
+    # external-component object during --arrange (D+E+F became E+F).
+    for base_object in list(_children(resources, "object")):
+        next_id = _inline_external_geometry(resources, base_object, base_map, next_id)
     identify_ids = []
     for instance in settings_root.iter():
         if _local_name(instance.tag) == "model_instance":
@@ -95,35 +147,10 @@ def merge_projects_on_plate(projects: list[bytes], *, plate: int = 1) -> bytes:
             for component in new_obj.iter():
                 if _local_name(component.tag) != "component":
                     continue
-                for attr, value in list(component.attrib.items()):
+                for attr, _value in list(component.attrib.items()):
                     if _local_name(attr).lower() == "uuid":
                         component.set(attr, str(uuid4()))
-                    if _local_name(attr) == "path":
-                        old_path = value.lstrip("/")
-                        if old_path not in mapped:
-                            raise ValueError(f"selected 3MF is missing geometry entry {old_path}")
-                        geometry_root = ET.fromstring(mapped[old_path])
-                        geometry_resources = next(
-                            (e for e in geometry_root if _local_name(e.tag) == "resources"), None
-                        )
-                        source_object_id = component.get("objectid")
-                        geometry_object = next(
-                            (e for e in _children(geometry_resources, "object") if e.get("id") == source_object_id),
-                            None,
-                        ) if geometry_resources is not None else None
-                        if geometry_object is None:
-                            raise ValueError(f"selected 3MF has no geometry object {source_object_id or '?'}")
-                        imported_object = deepcopy(geometry_object)
-                        imported_id = str(next_id)
-                        next_id += 1
-                        imported_object.set("id", imported_id)
-                        for element in imported_object.iter():
-                            for uuid_attr in list(element.attrib):
-                                if _local_name(uuid_attr).lower() == "uuid":
-                                    element.set(uuid_attr, str(uuid4()))
-                        resources.append(imported_object)
-                        component.set("objectid", imported_id)
-                        del component.attrib[attr]
+            next_id = _inline_external_geometry(resources, new_obj, mapped, next_id)
             resources.append(new_obj)
 
         for item in _children(src_build, "item"):

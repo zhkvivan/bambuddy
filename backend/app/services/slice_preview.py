@@ -197,6 +197,7 @@ async def get_preview_filaments(
     api_url: str,
     request_id: str | None = None,
     timeout_seconds: float | None = None,
+    arrange: bool = False,
 ) -> list[dict] | None:
     """Run a preview slice for ``plate_id``, parse the resulting slice_info,
     and return the per-plate filament list.
@@ -239,6 +240,7 @@ async def get_preview_filaments(
                     plate=plate_id,
                     export_3mf=True,
                     request_id=request_id,
+                    arrange=arrange,
                 )
 
         try:

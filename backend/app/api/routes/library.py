@@ -3286,6 +3286,7 @@ async def _try_preview_slice_filaments(
     plate_id: int,
     file_path: Path,
     request_id: str | None = None,
+    arrange: bool = False,
 ) -> list[dict] | None:
     """Run a preview slice via the user's configured sidecar. Same shape as
     the matching helper in archives.py — see that module for rationale.
@@ -3323,6 +3324,7 @@ async def _try_preview_slice_filaments(
         api_url=api_url,
         request_id=request_id,
         timeout_seconds=await get_stall_timeout_seconds(db),
+        arrange=arrange,
     )
 
 
@@ -3487,6 +3489,7 @@ async def get_library_file_filament_requirements(
                         plate_id=plate_id,
                         file_path=file_path,
                         request_id=request_id,
+                        arrange=lib_file.source_type == "merged",
                     )
                     if preview is not None:
                         used_slot_ids = {f["slot_id"] for f in preview}

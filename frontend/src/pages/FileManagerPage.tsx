@@ -1603,6 +1603,13 @@ export function FileManagerPage() {
       return api.mergeLibraryFilesOnPlate(selectedProjectFiles.map(file => file.id), `${stem}.3mf`);
     },
     onSuccess: async (result) => {
+      // SQLite can reuse the id of the previous transient merge after it was
+      // hard-deleted. Remove source-scoped query data before opening the new
+      // modal, otherwise plate/printer metadata from yesterday's object can
+      // appear under today's identical id and produce intermittent preset
+      // compatibility errors.
+      queryClient.removeQueries({ queryKey: ['slicePlates', 'libraryFile', result.id] });
+      queryClient.removeQueries({ queryKey: ['sliceFilamentReqs', 'libraryFile', result.id] });
       await queryClient.invalidateQueries({ queryKey: ['library-files'] });
       const merged = await api.getLibraryFile(result.id);
       setSelectedFiles([]);
