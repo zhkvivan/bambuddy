@@ -29,6 +29,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: bambuddy-integration-test
+    restart: unless-stopped
     ports:
       - "8001:8000"
     environment:
