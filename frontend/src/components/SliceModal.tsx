@@ -48,12 +48,25 @@ const QUICK_PRINTER_PROFILE_NAMES = [
   'Bambu Lab P1S 0.4 nozzle',
 ];
 
+// The day-to-day materials for the mini farm. System presets outside this
+// set remain available behind "Show all"; they are not removed.
+const QUICK_FILAMENT_PRESET_PREFIXES = [
+  'Bambu PLA Basic',
+  'Bambu PLA Matte',
+  'Bambu PLA Silk',
+  'Bambu PLA Aero',
+  'Bambu ASA',
+  'Generic PLA',
+];
+
 interface SliceModalProps {
   source: SliceSource;
   onClose: () => void;
   initialAutoArrange?: boolean;
   /** Printer picked by a printer-first workflow. */
   initialPrinterPresetName?: string;
+  /** Prefix used once for printer-first jobs; e.g. Bambu PLA Basic. */
+  initialFilamentPresetPrefix?: string;
   /** Lets a printer-first caller continue directly to the print confirmation
    * once the background slice has produced its library file. */
   onSliceQueued?: (jobId: number) => void;
@@ -221,7 +234,7 @@ function colourInputValue(raw: string | null | undefined): string {
     : SLICER_DEFAULT_COLOUR;
 }
 
-export function SliceModal({ source, onClose, initialAutoArrange = false, initialPrinterPresetName, onSliceQueued }: SliceModalProps) {
+export function SliceModal({ source, onClose, initialAutoArrange = false, initialPrinterPresetName, initialFilamentPresetPrefix, onSliceQueued }: SliceModalProps) {
   const { t } = useTranslation();
   const { trackJob } = useSliceJobTracker();
   const queryClient = useQueryClient();
@@ -233,6 +246,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
   // entry per AMS slot the plate uses. Pre-pick (effect below) initialises
   // each slot from the source plate's required (type, colour).
   const [filamentPresets, setFilamentPresets] = useState<(PresetRef | null)[]>([]);
+  const initialFilamentApplied = useRef(false);
   // Slots the user chose a filament for by hand, or by applying a pipeline.
   // The pre-pick below re-picks a slot whose preset states the wrong material,
   // and without this it would do that to a deliberate choice too — printing
@@ -615,7 +629,17 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
     const data = presetsQuery.data;
     if (!data) return;
     setFilamentPresets((current) => {
+      const pickQuickPla = !initialFilamentApplied.current && initialFilamentPresetPrefix && selectedPrinterName
+        ? (['local', 'orca_cloud', 'cloud', 'standard'] as const)
+          .flatMap((tier) => data[tier].filament)
+          .find((preset) =>
+            preset.name.startsWith(initialFilamentPresetPrefix)
+            && presetCompatibility(preset, 'filament', selectedPrinterName, compatIndex) !== 'mismatch',
+          )
+        : undefined;
+      if (pickQuickPla) initialFilamentApplied.current = true;
       return filamentSlots.map((slot, i) => {
+        if (pickQuickPla && i === 0) return { source: pickQuickPla.source, id: pickQuickPla.id };
         const cur = current[i] ?? null;
         if (cur) {
           const p = findPreset(data, cur, 'filament');
@@ -644,7 +668,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
         );
       });
     });
-  }, [presetsQuery.data, filamentSlots, selectedPrinterName, compatIndex]);
+  }, [presetsQuery.data, filamentSlots, selectedPrinterName, compatIndex, initialFilamentPresetPrefix]);
 
   // Drop colour overrides when the slot count changes. A plate switch renumbers
   // the slots, so keeping index-keyed overrides would paint slot 2's colour
@@ -1144,6 +1168,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
                       }
                       selectedPrinterName={selectedPrinterName}
                       compatIndex={compatIndex}
+                      standardPreferredNames={QUICK_FILAMENT_PRESET_PREFIXES}
                     />
                   );
                 })
@@ -1432,6 +1457,9 @@ interface PresetDropdownProps {
   selectedPrinterName?: string | null;
   compatIndex?: PrinterCompatibilityIndex;
   preferredPrinterNames?: string[];
+  /** Keep only these standard presets in the short list; the rest are still
+   * revealed by the existing Show all control. */
+  standardPreferredNames?: string[];
 }
 
 function PresetDropdown({
@@ -1447,6 +1475,7 @@ function PresetDropdown({
   selectedPrinterName,
   compatIndex,
   preferredPrinterNames,
+  standardPreferredNames,
 }: PresetDropdownProps) {
   const { t } = useTranslation();
   // Reveals the other-printer group for this slot only. Per-dropdown rather
@@ -1497,6 +1526,14 @@ function PresetDropdown({
       const compatible: UnifiedPreset[] = [];
       for (const p of entries) {
         if (
+          key === 'standard'
+          && standardPreferredNames?.length
+          && !standardPreferredNames.some((prefix) => p.name.startsWith(prefix))
+        ) {
+          other.push(p);
+          continue;
+        }
+        if (
           presetCompatibility(
             p,
             // filterByPrinter is true here, so slot is never 'printer'.
@@ -1526,7 +1563,7 @@ function PresetDropdown({
       return { sections: unfiltered, otherEntries: [] };
     }
     return { sections: compatSections, otherEntries: other };
-  }, [data, slot, t, selectedPrinterName, compatIndex, preferredPrinterNames]);
+  }, [data, slot, t, selectedPrinterName, compatIndex, preferredPrinterNames, standardPreferredNames]);
 
   // Other-printer presets are held back by default so the list shows what is
   // usable on the selected printer. Two things are never hidden: a preset whose

@@ -6735,6 +6735,7 @@ function PrinterCard({
           source={{ kind: 'libraryFile', id: librarySliceFile.id, filename: librarySliceFile.filename }}
           initialAutoArrange
           initialPrinterPresetName={`Bambu Lab ${printer.model} 0.4 nozzle`}
+          initialFilamentPresetPrefix="Bambu PLA Basic"
           onSliceQueued={setLibrarySliceJobId}
           onClose={() => {
             const temporaryId = librarySliceFile.id;
