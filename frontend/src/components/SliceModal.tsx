@@ -445,8 +445,8 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
   });
   const physicalTrayOptions = useMemo(() => {
     const status = printerStatusQuery.data;
-    if (!status) return [] as Array<{ id: number; label: string }>;
-    const options: Array<{ id: number; label: string }> = [];
+    if (!status) return [] as PhysicalTrayOption[];
+    const options: PhysicalTrayOption[] = [];
     status.ams.forEach((ams, amsIndex) => ams.tray.forEach((tray, trayIndex) => {
       if (!tray.tray_type && tray.exists === false) return;
       const material = tray.tray_sub_brands || tray.tray_type || 'Неизвестный филамент';
@@ -455,6 +455,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
       options.push({
         id: getGlobalTrayId(ams.id, trayIndex, false),
         label: `AMS-${String.fromCharCode(65 + amsIndex)} · ${trayIndex + 1}: ${material}${colour}`,
+        color: hex ? `#${hex}` : null,
       });
     }));
     status.vt_tray.forEach((tray, trayIndex) => {
@@ -462,7 +463,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
       const material = tray.tray_sub_brands || tray.tray_type || 'Неизвестный филамент';
       const hex = tray.tray_color?.replace('#', '').slice(0, 6);
       const colour = hex ? ` · ${getColorName(`#${hex}`, material)} (#${hex.toUpperCase()})` : '';
-      options.push({ id: getGlobalTrayId(255, trayIndex, true), label: `Внешняя подача: ${material}${colour}` });
+      options.push({ id: getGlobalTrayId(255, trayIndex, true), label: `Внешняя подача: ${material}${colour}`, color: hex ? `#${hex}` : null });
     });
     return options;
   }, [printerStatusQuery.data]);
@@ -1231,24 +1232,19 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
                     <p className="text-xs text-bambu-gray/70">Для быстрого запуска можно сразу указать ячейку AMS. «Автоматически» оставит подбор Bambuddy.</p>
                   </div>
                   {filamentSlots.filter((slot) => slot.used_in_plate !== false).map((slot, idx) => (
-                    <label key={`physical-tray-${slot.slot_id}`} className="block text-sm text-bambu-gray">
-                      {filamentSlots.length > 1 ? `Филамент ${idx + 1} (${slot.type || 'материал'})` : 'Катушка'}
-                      <select
-                        value={physicalTrayBySlot[slot.slot_id] ?? ''}
-                        onChange={(event) => setPhysicalTrayBySlot((current) => {
-                          const next = { ...current };
-                          const value = event.target.value;
-                          if (value === '') delete next[slot.slot_id];
-                          else next[slot.slot_id] = Number(value);
-                          return next;
-                        })}
-                        disabled={isEnqueuing || printerStatusQuery.isLoading}
-                        className="mt-1 w-full rounded border border-bambu-dark-tertiary bg-bambu-dark-secondary px-2 py-1.5 text-sm text-white disabled:opacity-50"
-                      >
-                        <option value="">Автоматически подобрать</option>
-                        {physicalTrayOptions.map((tray) => <option key={tray.id} value={tray.id}>{tray.label}</option>)}
-                      </select>
-                    </label>
+                    <PhysicalTrayPicker
+                      key={`physical-tray-${slot.slot_id}`}
+                      label={filamentSlots.length > 1 ? `Филамент ${idx + 1} (${slot.type || 'материал'})` : 'Катушка'}
+                      options={physicalTrayOptions}
+                      value={physicalTrayBySlot[slot.slot_id]}
+                      disabled={isEnqueuing || printerStatusQuery.isLoading}
+                      onChange={(value) => setPhysicalTrayBySlot((current) => {
+                        const next = { ...current };
+                        if (value == null) delete next[slot.slot_id];
+                        else next[slot.slot_id] = value;
+                        return next;
+                      })}
+                    />
                   ))}
                 </div>
               )}
@@ -1490,6 +1486,65 @@ const BED_TYPE_OPTIONS: { value: string; labelKey: string; fallback: string }[] 
   { value: 'Textured PEI Plate', labelKey: 'slice.bedType.texturedPEI', fallback: 'Textured PEI Plate' },
   { value: 'Smooth PEI Plate', labelKey: 'slice.bedType.smoothPEI', fallback: 'Smooth PEI Plate' },
 ];
+
+interface PhysicalTrayOption {
+  id: number;
+  label: string;
+  color: string | null;
+}
+
+function PhysicalTrayPicker({
+  label,
+  options,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  options: PhysicalTrayOption[];
+  value?: number;
+  disabled: boolean;
+  onChange: (value: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.id === value);
+  return (
+    <div className="relative text-sm text-bambu-gray">
+      <span className="block mb-1">{label}</span>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className="w-full flex items-center gap-2 rounded border border-bambu-dark-tertiary bg-bambu-dark-secondary px-2 py-1.5 text-left text-white disabled:opacity-50"
+      >
+        {selected?.color && <span className="h-4 w-4 shrink-0 rounded-full border border-white/50" style={{ backgroundColor: selected.color }} />}
+        <span className="truncate">{selected?.label ?? 'Автоматически подобрать'}</span>
+      </button>
+      {open && !disabled && (
+        <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto rounded border border-bambu-dark-tertiary bg-bambu-dark-secondary shadow-xl">
+          <button
+            type="button"
+            onClick={() => { onChange(null); setOpen(false); }}
+            className="w-full px-3 py-2 text-left hover:bg-white/10 text-white"
+          >
+            Автоматически подобрать
+          </button>
+          {options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => { onChange(option.id); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/10 text-white"
+            >
+              <span className="h-5 w-5 shrink-0 rounded-full border border-white/50" style={{ backgroundColor: option.color ?? '#808080' }} />
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function BedTypeDropdown({
   value,
