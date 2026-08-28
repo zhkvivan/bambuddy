@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Minus, Plus, Search, X } from 'lucide-react';
-import { api, type LibraryFileListItem } from '../api/client';
+import { api, type LibraryFileListItem, type LibraryFolderTree } from '../api/client';
 import { Button } from './Button';
 
 type Item = { key: string; quantity: number };
@@ -23,6 +23,13 @@ function stem(filename: string): string {
   return filename.replace(/\.3mf$/i, '').trim().toUpperCase();
 }
 
+function flattenFolders(items: LibraryFolderTree[], prefix = ''): Array<{ id: number; label: string; name: string }> {
+  return items.flatMap((folder) => {
+    const label = prefix ? `${prefix} / ${folder.name}` : folder.name;
+    return [{ id: folder.id, label, name: folder.name }, ...flattenFolders(folder.children, label)];
+  });
+}
+
 /** The printer-first quick order flow. It deliberately produces a normal
  * temporary 3MF and hands it to SliceModal, so arranging and slicing still
  * have exactly one implementation. */
@@ -34,6 +41,22 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
     // so limiting this printer-first workflow to root makes valid A.3mf etc.
     // look as though they don't exist.
     queryFn: () => api.getLibraryFiles(undefined, false),
+  });
+  const { data: folderTree } = useQuery({ queryKey: ['library-folders'], queryFn: api.getLibraryFolders, staleTime: 60_000 });
+  const folders = useMemo(() => flattenFolders(folderTree ?? []), [folderTree]);
+  const [letterFolderId, setLetterFolderId] = useState<number | null>(null);
+  const initialFolderChosen = useRef(false);
+  useEffect(() => {
+    if (initialFolderChosen.current || folders.length === 0) return;
+    // The usual collection is named "Standard Size". If it is renamed or
+    // absent, retain the existing all-library search rather than failing.
+    const standard = folders.find((folder) => /standard/i.test(folder.name));
+    if (standard) setLetterFolderId(standard.id);
+    initialFolderChosen.current = true;
+  }, [folders]);
+  const { data: letterLibrary, isLoading: isLoadingLetters } = useQuery({
+    queryKey: ['library-files', 'printer-quick-print-letters', letterFolderId],
+    queryFn: () => api.getLibraryFiles(letterFolderId ?? undefined, false),
   });
   const [mode, setMode] = useState<'letters' | 'files'>('letters');
   const [rows, setRows] = useState<Item[]>([{ key: '', quantity: 1 }]);
@@ -50,6 +73,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
   }, [focusRow, mode, rows.length]);
 
   const files = useMemo(() => projectFiles(library), [library]);
+  const letterFiles = useMemo(() => projectFiles(letterLibrary), [letterLibrary]);
   const filtered = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return needle ? files.filter((file) => file.filename.toLowerCase().includes(needle)) : files;
@@ -57,7 +81,8 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
 
   const merge = useMutation({
     mutationFn: async () => {
-      const byStem = new Map(files.map((file) => [stem(file.filename), file]));
+      const sourceFiles = mode === 'letters' ? letterFiles : files;
+      const byStem = new Map(sourceFiles.map((file) => [stem(file.filename), file]));
       const wanted = rows.filter((row) => row.key.trim() && row.quantity > 0);
       const missing = wanted.filter((row) => !byStem.has(row.key.trim().toUpperCase()));
       if (missing.length) {
@@ -85,7 +110,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
   });
 
   const submit = () => {
-    if (!merge.isPending && !isLoading) merge.mutate();
+    if (!merge.isPending && !(mode === 'letters' ? isLoadingLetters : isLoading)) merge.mutate();
   };
 
   // This form is primarily keyboard-driven: Enter adds the next letter,
@@ -98,7 +123,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [merge.isPending, isLoading, rows, files]);
+  }, [merge.isPending, isLoading, isLoadingLetters, mode, rows, files, letterFiles]);
 
   const update = (index: number, patch: Partial<Item>) => {
     setRows((current) => current.map((row, i) => i === index ? { ...row, ...patch } : row));
@@ -127,6 +152,12 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {mode === 'letters' ? (
             <>
+              <label className="mb-4 block text-sm text-bambu-gray">Набор букв
+                <select value={letterFolderId ?? ''} onChange={(event) => setLetterFolderId(event.target.value ? Number(event.target.value) : null)} className="mt-1 w-full rounded-lg border border-bambu-dark-tertiary bg-bambu-dark px-3 py-2 text-white outline-none focus:border-bambu-green">
+                  <option value="">Все папки</option>
+                  {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.label}</option>)}
+                </select>
+              </label>
               <p className="mb-4 text-sm text-bambu-gray">Вводи имя файла без расширения: например <span className="text-white">C</span>, <span className="text-white">O × 2</span>, <span className="text-white">B × 4</span>. Файлы должны называться <span className="text-white">C.3mf</span>, <span className="text-white">O.3mf</span> и т.д.</p>
               <div className="space-y-2">
                 {rows.map((row, index) => (
@@ -156,7 +187,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
           )}
           {merge.error && <p className="mt-4 text-sm text-red-400">{merge.error.message}</p>}
         </div>
-        <div className="flex justify-end gap-3 border-t border-bambu-dark-tertiary px-6 py-4"><Button variant="secondary" onClick={onClose}>Отмена</Button><Button onClick={submit} disabled={merge.isPending || isLoading}>{merge.isPending ? 'Собираем…' : 'Собрать на одну пластину'}</Button></div>
+        <div className="flex justify-end gap-3 border-t border-bambu-dark-tertiary px-6 py-4"><Button variant="secondary" onClick={onClose}>Отмена</Button><Button onClick={submit} disabled={merge.isPending || (mode === 'letters' ? isLoadingLetters : isLoading)}>{merge.isPending ? 'Собираем…' : 'Собрать на одну пластину'}</Button></div>
       </div>
     </div>
   );
