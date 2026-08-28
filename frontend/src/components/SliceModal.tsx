@@ -35,6 +35,7 @@ import {
   statesDifferentMaterial,
   type Slot,
 } from '../utils/slicePresetPicker';
+import { getGlobalTrayId } from '../utils/amsHelpers';
 
 export type SliceSource =
   | { kind: 'libraryFile'; id: number; filename: string }
@@ -67,10 +68,12 @@ interface SliceModalProps {
   initialPrinterPresetName?: string;
   /** Prefix used once for printer-first jobs; e.g. Bambu PLA Basic. */
   initialFilamentPresetPrefix?: string;
+  /** The physical printer in a printer-first flow, used for its AMS picker. */
+  printerId?: number;
   /** Lets a printer-first caller continue directly to the print confirmation
    * once the background slice has produced its library file. */
   /** `review` opens the normal print settings; `direct` queues with defaults. */
-  onSliceQueued?: (jobId: number, action: 'review' | 'direct') => void;
+  onSliceQueued?: (jobId: number, action: 'review' | 'direct', amsMapping?: number[]) => void;
 }
 
 function toRefValue(ref: PresetRef | null): string {
@@ -235,7 +238,7 @@ function colourInputValue(raw: string | null | undefined): string {
     : SLICER_DEFAULT_COLOUR;
 }
 
-export function SliceModal({ source, onClose, initialAutoArrange = false, initialPrinterPresetName, initialFilamentPresetPrefix, onSliceQueued }: SliceModalProps) {
+export function SliceModal({ source, onClose, initialAutoArrange = false, initialPrinterPresetName, initialFilamentPresetPrefix, printerId, onSliceQueued }: SliceModalProps) {
   const { t } = useTranslation();
   const { trackJob } = useSliceJobTracker();
   const queryClient = useQueryClient();
@@ -261,6 +264,10 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
   // for every slot up front would defeat that chain, because a sent colour
   // outranks the preset's own `default_filament_colour` (#2977).
   const [filamentColours, setFilamentColours] = useState<(string | null)[]>([]);
+  // Physical tray choices are deliberately separate from slicer filament
+  // presets: the first describes how to slice, the second tells the printer
+  // which real AMS spool must feed the finished job.
+  const [physicalTrayBySlot, setPhysicalTrayBySlot] = useState<Record<number, number>>({});
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // null = plate not yet picked (or single-plate / non-3MF — picker is skipped
   // and we'll backfill 1 at submit time). Set to a 1-indexed plate number once
@@ -428,6 +435,32 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
     }
     return base;
   }, [sliceAllPlates, filamentReqsQuery.data]);
+
+  const printerStatusQuery = useQuery({
+    queryKey: ['printer-status', printerId],
+    queryFn: () => api.getPrinterStatus(printerId!),
+    enabled: !!printerId,
+    staleTime: 15_000,
+  });
+  const physicalTrayOptions = useMemo(() => {
+    const status = printerStatusQuery.data;
+    if (!status) return [] as Array<{ id: number; label: string }>;
+    const options: Array<{ id: number; label: string }> = [];
+    status.ams.forEach((ams, amsIndex) => ams.tray.forEach((tray, trayIndex) => {
+      if (!tray.tray_type && tray.exists === false) return;
+      const material = tray.tray_sub_brands || tray.tray_type || 'Неизвестный филамент';
+      options.push({
+        id: getGlobalTrayId(ams.id, trayIndex, false),
+        label: `AMS-${String.fromCharCode(65 + amsIndex)} · ${trayIndex + 1}: ${material}`,
+      });
+    }));
+    status.vt_tray.forEach((tray, trayIndex) => {
+      if (!tray.tray_type && tray.exists === false) return;
+      const material = tray.tray_sub_brands || tray.tray_type || 'Неизвестный филамент';
+      options.push({ id: getGlobalTrayId(255, trayIndex, true), label: `Внешняя подача: ${material}` });
+    });
+    return options;
+  }, [printerStatusQuery.data]);
 
   const presetsQuery = useQuery({
     queryKey: ['slicerPresets'],
@@ -698,7 +731,11 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
     },
     onSuccess: ({ enqueue, action }) => {
       trackJob(enqueue.job_id, source.kind, source.filename);
-      onSliceQueued?.(enqueue.job_id, action);
+      const selectedTrayIds = Object.values(physicalTrayBySlot);
+      const amsMapping = selectedTrayIds.length > 0
+        ? filamentSlots.map((slot) => physicalTrayBySlot[slot.slot_id] ?? -1)
+        : undefined;
+      onSliceQueued?.(enqueue.job_id, action, amsMapping);
       onClose();
     },
     onError: (err: unknown) => {
@@ -1181,6 +1218,34 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
                     />
                   );
                 })
+              )}
+              {printerId && !filamentReqsQuery.isLoading && (
+                <div className="mt-4 pt-4 border-t border-bambu-dark-tertiary/40 space-y-2">
+                  <div>
+                    <p className="text-sm font-medium text-bambu-gray">Катушка на принтере</p>
+                    <p className="text-xs text-bambu-gray/70">Для быстрого запуска можно сразу указать ячейку AMS. «Автоматически» оставит подбор Bambuddy.</p>
+                  </div>
+                  {filamentSlots.filter((slot) => slot.used_in_plate !== false).map((slot, idx) => (
+                    <label key={`physical-tray-${slot.slot_id}`} className="block text-sm text-bambu-gray">
+                      {filamentSlots.length > 1 ? `Филамент ${idx + 1} (${slot.type || 'материал'})` : 'Катушка'}
+                      <select
+                        value={physicalTrayBySlot[slot.slot_id] ?? ''}
+                        onChange={(event) => setPhysicalTrayBySlot((current) => {
+                          const next = { ...current };
+                          const value = event.target.value;
+                          if (value === '') delete next[slot.slot_id];
+                          else next[slot.slot_id] = Number(value);
+                          return next;
+                        })}
+                        disabled={isEnqueuing || printerStatusQuery.isLoading}
+                        className="mt-1 w-full rounded border border-bambu-dark-tertiary bg-bambu-dark-secondary px-2 py-1.5 text-sm text-white disabled:opacity-50"
+                      >
+                        <option value="">Автоматически подобрать</option>
+                        {physicalTrayOptions.map((tray) => <option key={tray.id} value={tray.id}>{tray.label}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
               )}
                 </div>
 

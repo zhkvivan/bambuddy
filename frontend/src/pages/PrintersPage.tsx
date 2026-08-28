@@ -2206,6 +2206,7 @@ function PrinterCard({
   const [librarySliceFile, setLibrarySliceFile] = useState<{ id: number; filename: string; temporary: boolean } | null>(null);
   const [librarySliceJobId, setLibrarySliceJobId] = useState<number | null>(null);
   const [librarySliceAction, setLibrarySliceAction] = useState<'review' | 'direct'>('review');
+  const [librarySliceAmsMapping, setLibrarySliceAmsMapping] = useState<number[] | undefined>(undefined);
   const [printAfterSlice, setPrintAfterSlice] = useState<{ id: number; filename: string } | null>(null);
   const [showPrinterInfo, setShowPrinterInfo] = useState(false);
   const [showDiagnostic, setShowDiagnostic] = useState(false);
@@ -2226,6 +2227,7 @@ function PrinterCard({
         api.addToQueue({
           printer_id: printer.id,
           library_file_id: job.result.library_file_id,
+          ams_mapping: librarySliceAmsMapping,
           insert_at_top: true,
           insert_position: 1,
           bed_levelling: 'auto',
@@ -2245,7 +2247,7 @@ function PrinterCard({
         setPrintAfterSlice({ id: job.result.library_file_id, filename: job.result.name });
       }
     }
-  }, [librarySliceJobQuery.data, librarySliceAction, printer.id, queryClient, showToast]);
+  }, [librarySliceJobQuery.data, librarySliceAction, librarySliceAmsMapping, printer.id, queryClient, showToast]);
   // AMS drying popover state: which AMS unit has the popover open
   const [dryingPopoverAmsId, setDryingPopoverAmsId] = useState<number | null>(null);
   const [dryingPopoverModuleType, setDryingPopoverModuleType] = useState<string>('n3f');
@@ -6758,8 +6760,10 @@ function PrinterCard({
           initialAutoArrange
           initialPrinterPresetName={`Bambu Lab ${printer.model} 0.4 nozzle`}
           initialFilamentPresetPrefix="Bambu PLA Basic"
-          onSliceQueued={(jobId, action) => {
+          printerId={printer.id}
+          onSliceQueued={(jobId, action, amsMapping) => {
             setLibrarySliceAction(action);
+            setLibrarySliceAmsMapping(amsMapping);
             setLibrarySliceJobId(jobId);
           }}
           onClose={() => {
