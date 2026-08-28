@@ -247,6 +247,7 @@ function classifyByBambuName(
   presetName: string,
   selectedPrinterName: string,
   bambuModelByShortCode: Record<string, string>,
+  slot: 'process' | 'filament',
 ): PrinterCompatibility {
   const parsed = extractPrinterTag(presetName);
   if (!parsed) return 'unknown';
@@ -273,6 +274,24 @@ function classifyByBambuName(
   // without us having to ship a code update. When they differ in form
   // (X1C vs "X1 Carbon"), the registry is what makes the match work.
   const inferredModel = bambuModelByShortCode[parsed.token] ?? parsed.token;
+  // Bambu ships P1S process presets under the X1C family name. Their
+  // resolved profile explicitly lists P1S as compatible, but older/current
+  // sidecar preset-list endpoints may omit that metadata from standard-tier
+  // entries. Preserve the official shared-process relationship in the name
+  // fallback so selecting P1S does not auto-pick the first (A1/P1P) process.
+  // This is process-only: P1S has its own machine-specific filament presets.
+  const selectedModel = normalizeModelFragment(selectedParts.model);
+  if (
+    slot === 'process'
+    && parsed.token.toUpperCase() === 'X1C'
+    && selectedModel === normalizeModelFragment('P1S')
+  ) {
+    if (selectedParts.nozzle !== null) {
+      const presetNozzle = parsed.nozzle ?? DEFAULT_NOZZLE;
+      if (!sameNozzle(presetNozzle, selectedParts.nozzle)) return 'mismatch';
+    }
+    return 'match';
+  }
   // The raw inferred model and the printer-preset fragment may differ only by
   // the Bambu short-code rename (e.g. preset token "A1M" vs printer "A1 Mini").
   // ``matchesPrinterModelSuffix`` consults the alias table before declaring a
@@ -323,7 +342,12 @@ export function presetCompatibility(
   }
   // (2) BambuStudio's `@BBL <model>` name convention — covers cloud /
   // standard presets that don't carry compatible_printers.
-  return classifyByBambuName(preset.name, selectedPrinterName, index.bambuModelByShortCode);
+  return classifyByBambuName(
+    preset.name,
+    selectedPrinterName,
+    index.bambuModelByShortCode,
+    _slot,
+  );
 }
 
 // model token compiles to a flexible-whitespace word-boundary regex.
