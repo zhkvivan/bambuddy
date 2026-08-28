@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 from copy import deepcopy
+from uuid import uuid4
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
@@ -38,6 +39,12 @@ def _set_metadata_value(element: ET.Element, key: str, value: str) -> None:
         if child.get("key") == key:
             child.set("value", value)
             return
+
+
+def _replace_uuid(element: ET.Element) -> None:
+    for attribute in list(element.attrib):
+        if _local_name(attribute).lower() == "uuid":
+            element.set(attribute, str(uuid4()))
 
 
 def _register_namespaces(xml: bytes) -> None:
@@ -126,6 +133,8 @@ def duplicate_plate_instances(project_bytes: bytes, *, copies: int, plate: int =
         except ValueError:
             pass
     next_identify_id = max(identify_values, default=0) + 1
+    assemble = next((element for element in settings_root.iter() if _local_name(element.tag) == "assemble"), None)
+    assemble_items = _children(assemble, "assemble_item") if assemble is not None else []
 
     for source_instance in source_instances:
         object_id = _metadata_value(source_instance, "object_id")
@@ -151,7 +160,21 @@ def duplicate_plate_instances(project_bytes: bytes, *, copies: int, plate: int =
                 _set_metadata_value(new_instance, "identify_id", str(next_identify_id))
                 next_identify_id += 1
             target_plate.append(new_instance)
-            build.append(deepcopy(template_item))
+            new_build_item = deepcopy(template_item)
+            _replace_uuid(new_build_item)
+            build.append(new_build_item)
+
+            # Bambu Studio also records an instance-level transform in the
+            # optional <assemble> section. Volume-level rows have no
+            # instance_id and describe shared geometry, so leave them alone.
+            if assemble is not None:
+                for assemble_item in assemble_items:
+                    if assemble_item.get("object_id") == object_id and assemble_item.get("instance_id") == str(
+                        source_instance_id
+                    ):
+                        new_assemble_item = deepcopy(assemble_item)
+                        new_assemble_item.set("instance_id", str(new_instance_id))
+                        assemble.append(new_assemble_item)
 
     replacements = {
         _MODEL_PATH: ET.tostring(model_root, encoding="utf-8", xml_declaration=True),
