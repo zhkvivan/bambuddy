@@ -40,6 +40,14 @@ export type SliceSource =
   | { kind: 'libraryFile'; id: number; filename: string }
   | { kind: 'archive'; id: number; filename: string };
 
+// This installation only prints on these two machine/nozzle combinations.
+// Keep the complete bundled catalogue behind "Show all" for maintenance or
+// future hardware, but don't make the normal order workflow scroll through it.
+const QUICK_PRINTER_PROFILE_NAMES = [
+  'Bambu Lab A1 0.4 nozzle',
+  'Bambu Lab P1S 0.4 nozzle',
+];
+
 interface SliceModalProps {
   source: SliceSource;
   onClose: () => void;
@@ -550,8 +558,14 @@ export function SliceModal({ source, onClose, initialAutoArrange = false }: Slic
     const data = presetsQuery.data;
     if (!data) return;
     if (printerPreset == null) {
+      const embeddedModel = embeddedPrinter?.match(/\b(A1|P1S)\b/i)?.[1]?.toUpperCase();
+      const preferredForSource = QUICK_PRINTER_PROFILE_NAMES.find((name) =>
+        embeddedModel ? name.toUpperCase().includes(` ${embeddedModel} `) : false,
+      );
       setPrinterPreset(
-        findPresetByName(data, 'printer', embeddedPrinter) ?? pickDefault(data, 'printer'),
+        findPresetByName(data, 'printer', preferredForSource)
+          ?? findPresetByName(data, 'printer', embeddedPrinter)
+          ?? pickDefault(data, 'printer'),
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -950,6 +964,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false }: Slic
                 // design's target would drop canUseEmbedded and yank the toggle
                 // out from under the user (#2611).
                 disabled={isEnqueuing || useEmbedded}
+                preferredPrinterNames={QUICK_PRINTER_PROFILE_NAMES}
               />
               {/* "Slice as designed" (#2611): honour the file's embedded
                   settings instead of the picked process/filament. Offered
@@ -1398,6 +1413,7 @@ interface PresetDropdownProps {
   // held back behind a "Show all" link instead of padding out the main list.
   selectedPrinterName?: string | null;
   compatIndex?: PrinterCompatibilityIndex;
+  preferredPrinterNames?: string[];
 }
 
 function PresetDropdown({
@@ -1412,6 +1428,7 @@ function PresetDropdown({
   swatchColorLabel,
   selectedPrinterName,
   compatIndex,
+  preferredPrinterNames,
 }: PresetDropdownProps) {
   const { t } = useTranslation();
   // Reveals the other-printer group for this slot only. Per-dropdown rather
@@ -1448,7 +1465,15 @@ function PresetDropdown({
       const entries = (data[key] as UnifiedPresetsBySlot)[slot];
       if (entries.length > 0) unfiltered.push({ tierLabel: t(lk, fallback), entries });
       if (!filterByPrinter) {
-        if (entries.length > 0) compatSections.push({ tierLabel: t(lk, fallback), entries });
+        if (preferredPrinterNames?.length) {
+          const preferred = new Set(preferredPrinterNames.map((name) => name.toLowerCase()));
+          const quick = entries.filter((entry) => preferred.has(entry.name.toLowerCase()));
+          const remaining = entries.filter((entry) => !preferred.has(entry.name.toLowerCase()));
+          if (quick.length > 0) compatSections.push({ tierLabel: t(lk, fallback), entries: quick });
+          other.push(...remaining);
+        } else if (entries.length > 0) {
+          compatSections.push({ tierLabel: t(lk, fallback), entries });
+        }
         continue;
       }
       const compatible: UnifiedPreset[] = [];
@@ -1483,7 +1508,7 @@ function PresetDropdown({
       return { sections: unfiltered, otherEntries: [] };
     }
     return { sections: compatSections, otherEntries: other };
-  }, [data, slot, t, selectedPrinterName, compatIndex]);
+  }, [data, slot, t, selectedPrinterName, compatIndex, preferredPrinterNames]);
 
   // Other-printer presets are held back by default so the list shows what is
   // usable on the selected printer. Two things are never hidden: a preset whose
