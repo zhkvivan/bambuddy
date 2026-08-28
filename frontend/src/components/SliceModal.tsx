@@ -454,6 +454,17 @@ export function SliceModal({ source, onClose, initialAutoArrange = false }: Slic
     if (!presetsQuery.data || !printerPreset) return null;
     return findPreset(presetsQuery.data, printerPreset, 'printer')?.name ?? null;
   }, [presetsQuery.data, printerPreset]);
+  const handlePrinterPresetChange = (next: PresetRef | null) => {
+    if (toRefValue(next) === toRefValue(printerPreset)) return;
+    // Change the profile triplet as one UI operation. Keeping the A1 process
+    // and filament alive for one render after the printer becomes P1S leaves
+    // a short window where Slice can submit an internally inconsistent set.
+    setPrinterPreset(next);
+    setProcessPreset(null);
+    setFilamentPresets([]);
+    explicitFilamentSlots.current = new Set();
+    setUseEmbedded(false);
+  };
   // Compatibility ground truth: the slicer's own `compatible_printers` list
   // on local-imported presets, plus the @BBL <code> name fallback for cloud
   // / standard presets via the backend Bambu printer-model registry.
@@ -958,7 +969,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false }: Slic
                 slot="printer"
                 data={presetsQuery.data}
                 value={printerPreset}
-                onChange={setPrinterPreset}
+                onChange={handlePrinterPresetChange}
                 // Locked in embedded mode too: the picked printer is unused on
                 // the embedded-settings path, and changing it away from the
                 // design's target would drop canUseEmbedded and yank the toggle

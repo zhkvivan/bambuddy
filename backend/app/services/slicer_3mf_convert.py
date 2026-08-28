@@ -27,6 +27,64 @@ _MODEL_SETTINGS_PATH = "Metadata/model_settings.config"
 _SLICE_INFO_PATH = "Metadata/slice_info.config"
 
 
+def retarget_project_printer_identity(
+    zip_bytes: bytes,
+    target_printer_name: str,
+    target_process_name: str | None = None,
+    target_filament_names: list[str] | None = None,
+) -> bytes:
+    """Rewrite the embedded printer identity before a cross-model slice.
+
+    Bambu Studio validates ``print_compatible_printers`` in the project before
+    applying ``--load-settings``. An A1 project therefore rejects a perfectly
+    valid P1S profile before that profile gets a chance to replace the A1
+    machine settings. Only identity/compatibility fields are changed here; the
+    resolved target printer JSON passed to the CLI remains authoritative for
+    dimensions, limits, start G-code and every other machine setting.
+    """
+    try:
+        with zipfile.ZipFile(BytesIO(zip_bytes), "r") as source:
+            entries = [(info, source.read(info.filename)) for info in source.infolist()]
+    except (zipfile.BadZipFile, OSError):
+        return zip_bytes
+    mapped = {info.filename: payload for info, payload in entries}
+    if _PROJECT_SETTINGS_PATH not in mapped:
+        return zip_bytes
+    try:
+        config = json.loads(mapped[_PROJECT_SETTINGS_PATH].decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return zip_bytes
+    if not isinstance(config, dict):
+        return zip_bytes
+
+    model = re.sub(r"\s+\d+(?:\.\d+)?\s+nozzle$", "", target_printer_name, flags=re.IGNORECASE)
+    variant_match = re.search(r"(\d+(?:\.\d+)?)\s+nozzle$", target_printer_name, re.IGNORECASE)
+    config["printer_settings_id"] = target_printer_name
+    config["printer_model"] = model
+    config["print_compatible_printers"] = [target_printer_name]
+    # These IDs participate in a second compatibility check before the
+    # command-line profiles are overlaid. Keep the embedded identity tuple
+    # coherent with the profiles selected in Bambuddy.
+    if target_process_name:
+        config["print_settings_id"] = target_process_name
+        config["default_print_profile"] = target_process_name
+    if target_filament_names:
+        config["filament_settings_id"] = target_filament_names
+    if variant_match:
+        config["printer_variant"] = variant_match.group(1)
+
+    replacement = json.dumps(config, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    output = BytesIO()
+    with zipfile.ZipFile(output, "w") as destination:
+        for info, payload in entries:
+            destination.writestr(
+                info,
+                replacement if info.filename == _PROJECT_SETTINGS_PATH else payload,
+                compress_type=info.compress_type,
+            )
+    return output.getvalue()
+
+
 def count_plates_in_3mf(zip_bytes: bytes) -> int:
     """Return the number of plates the source 3MF defines, or ``0`` if the
     file isn't a parseable 3MF / has no plate metadata. Used by the

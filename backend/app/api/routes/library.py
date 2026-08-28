@@ -4065,6 +4065,27 @@ async def _run_slicer_with_fallback(
         # didn't touch) still drive the slice.
         primary_bytes = _sanitize_project_settings_sentinels(primary_bytes)
 
+        # Bambu Studio checks the project's embedded compatibility list before
+        # it applies the target printer supplied via --load-settings. Retarget
+        # these identity fields up front so an A1-authored project can be
+        # legitimately re-sliced for P1S (or any other same-nozzle-class
+        # printer) instead of being rejected before the profile is loaded.
+        from backend.app.services.slicer_3mf_convert import (
+            extract_source_printer_model,
+            retarget_project_printer_identity,
+        )
+
+        source_model_for_retarget = extract_source_printer_model(primary_bytes)
+        target_model_for_retarget = await _resolve_target_printer_model(db, user, request)
+        if source_model_for_retarget and target_model_for_retarget and source_model_for_retarget != target_model_for_retarget:
+            target_printer_name = request.printer_preset.id if request.printer_preset else target_model_for_retarget
+            primary_bytes = retarget_project_printer_identity(
+                primary_bytes,
+                target_printer_name,
+                request.process_preset.id if request.process_preset else None,
+                [preset.id for preset in request.filament_presets],
+            )
+
         if request.copies_on_plate > 1:
             from backend.app.services.three_mf_instances import duplicate_plate_instances
 
@@ -4147,9 +4168,7 @@ async def _run_slicer_with_fallback(
     # plate override.
     cross_class_arrange = False
     if is_3mf:
-        from backend.app.services.slicer_3mf_convert import (
-            extract_source_printer_model,
-        )
+        from backend.app.services.slicer_3mf_convert import extract_source_printer_model
         from backend.app.utils.printer_models import is_dual_nozzle_model
 
         source_model = extract_source_printer_model(primary_bytes)
