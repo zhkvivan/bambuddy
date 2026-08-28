@@ -29,7 +29,11 @@ function stem(filename: string): string {
 export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Props) {
   const { data: library, isLoading } = useQuery({
     queryKey: ['library-files', 'printer-quick-print'],
-    queryFn: () => api.getLibraryFiles(),
+    // `includeRoot=false` with no folder is the library API's explicit
+    // "all folders" mode. Letter collections are normally kept in a folder,
+    // so limiting this printer-first workflow to root makes valid A.3mf etc.
+    // look as though they don't exist.
+    queryFn: () => api.getLibraryFiles(undefined, false),
   });
   const [mode, setMode] = useState<'letters' | 'files'>('letters');
   const [rows, setRows] = useState<Item[]>([{ key: '', quantity: 1 }]);
