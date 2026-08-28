@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 from copy import deepcopy
 from uuid import uuid4
 from xml.etree import ElementTree as ET
@@ -13,6 +14,7 @@ from backend.app.services.three_mf_instances import _children, _local_name, _met
 _MODEL = "3D/3dmodel.model"
 _SETTINGS = "Metadata/model_settings.config"
 _RELS = "3D/_rels/3dmodel.model.rels"
+_LAYER_HEIGHTS = "Metadata/layer_heights_profile.txt"
 
 
 def _read_project(data: bytes) -> tuple[list[tuple[object, bytes]], dict[str, bytes]]:
@@ -117,7 +119,20 @@ def merge_projects_on_plate(projects: list[bytes], *, plate: int = 1) -> bytes:
             except ValueError:
                 pass
     next_identify = max(identify_ids, default=0) + 1
+    used_part_ids = {
+        int(part.get("id"))
+        for obj in _children(settings_root, "object")
+        for part in _children(obj, "part")
+        if (part.get("id") or "").isdigit()
+    }
+    next_part_id = max(used_part_ids, default=0) + 1
     additions: dict[str, bytes] = {}
+    # Bambu Studio stores adaptive/variable layer heights outside
+    # model_settings.config, one `object_id=<id>|...` record per model. Keep
+    # the base records and append every imported object's record after its id
+    # is remapped, otherwise only the first selected letter retains its smooth
+    # variable-layer profile.
+    layer_height_lines = base_map.get(_LAYER_HEIGHTS, b"").decode("utf-8", errors="replace").splitlines()
 
     rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
     ET.register_namespace("", rel_ns)
@@ -165,14 +180,33 @@ def merge_projects_on_plate(projects: list[bytes], *, plate: int = 1) -> bytes:
             build.append(new_item)
 
         src_objects = {o.get("id"): o for o in _children(src_settings, "object")}
+        part_id_map: dict[str, str] = {}
         for old_id, new_id in id_map.items():
             if old_id in src_objects:
                 new_cfg_obj = deepcopy(src_objects[old_id])
                 new_cfg_obj.set("id", new_id)
+                # `layer_heights_profile.txt` calls its records object_id, but
+                # that number is actually the model-settings <part id>, not
+                # the 3MF geometry object's id. Parts from independently
+                # exported letters commonly all start at 1, so make them
+                # unique before appending their adaptive-layer records.
+                for part in _children(new_cfg_obj, "part"):
+                    old_part_id = part.get("id")
+                    if old_part_id:
+                        new_part_id = str(next_part_id)
+                        next_part_id += 1
+                        part_id_map[old_part_id] = new_part_id
+                        part.set("id", new_part_id)
                 for element in new_cfg_obj.iter():
                     if "uuid" in element.attrib:
                         element.set("uuid", str(uuid4()))
                 settings_root.insert(len(_children(settings_root, "object")), new_cfg_obj)
+
+        source_layer_profiles = mapped.get(_LAYER_HEIGHTS, b"").decode("utf-8", errors="replace").splitlines()
+        for line in source_layer_profiles:
+            match = re.match(r"^(object_id=)([^|]+)(\|.*)$", line)
+            if match and match.group(2) in part_id_map:
+                layer_height_lines.append(f"{match.group(1)}{part_id_map[match.group(2)]}{match.group(3)}")
 
         src_plates = [e for e in src_settings.iter() if _local_name(e.tag) == "plate"]
         for src_plate in src_plates:
@@ -203,6 +237,8 @@ def merge_projects_on_plate(projects: list[bytes], *, plate: int = 1) -> bytes:
         _SETTINGS: ET.tostring(settings_root, encoding="utf-8", xml_declaration=True),
         _RELS: ET.tostring(rel_root, encoding="utf-8", xml_declaration=True),
     }
+    if layer_height_lines:
+        replacements[_LAYER_HEIGHTS] = ("\n".join(layer_height_lines) + "\n").encode("utf-8")
     out = io.BytesIO()
     with ZipFile(out, "w", compression=ZIP_DEFLATED) as destination:
         existing = set()

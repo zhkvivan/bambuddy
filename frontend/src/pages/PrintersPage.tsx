@@ -2203,7 +2203,7 @@ function PrinterCard({
   const [showSkipObjectsModal, setShowSkipObjectsModal] = useState(false);
   const [showUploadForPrint, setShowUploadForPrint] = useState(false);
   const [showLibraryPrint, setShowLibraryPrint] = useState(false);
-  const [librarySliceFile, setLibrarySliceFile] = useState<{ id: number; filename: string } | null>(null);
+  const [librarySliceFile, setLibrarySliceFile] = useState<{ id: number; filename: string; temporary: boolean } | null>(null);
   const [librarySliceJobId, setLibrarySliceJobId] = useState<number | null>(null);
   const [printAfterSlice, setPrintAfterSlice] = useState<{ id: number; filename: string } | null>(null);
   const [showPrinterInfo, setShowPrinterInfo] = useState(false);
@@ -6723,7 +6723,7 @@ function PrinterCard({
         <PrinterLibraryPrintModal
           printerName={printer.name}
           onClose={() => setShowLibraryPrint(false)}
-          onMerged={(file) => {
+          onProject={(file) => {
             setShowLibraryPrint(false);
             setLibrarySliceFile(file);
           }}
@@ -6740,7 +6740,7 @@ function PrinterCard({
           onClose={() => {
             const temporaryId = librarySliceFile.id;
             setLibrarySliceFile(null);
-            api.discardMergedLibraryFile(temporaryId).catch(() => {});
+            if (librarySliceFile.temporary) api.discardMergedLibraryFile(temporaryId).catch(() => {});
           }}
         />
       )}

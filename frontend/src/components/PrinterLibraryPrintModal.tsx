@@ -9,7 +9,7 @@ type Item = { key: string; quantity: number };
 interface Props {
   printerName: string;
   onClose: () => void;
-  onMerged: (file: { id: number; filename: string }) => void;
+  onProject: (file: { id: number; filename: string; temporary: boolean }) => void;
 }
 
 function projectFiles(files: LibraryFileListItem[] | undefined): LibraryFileListItem[] {
@@ -26,7 +26,7 @@ function stem(filename: string): string {
 /** The printer-first quick order flow. It deliberately produces a normal
  * temporary 3MF and hands it to SliceModal, so arranging and slicing still
  * have exactly one implementation. */
-export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Props) {
+export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Props) {
   const { data: library, isLoading } = useQuery({
     queryKey: ['library-files', 'printer-quick-print'],
     // `includeRoot=false` with no folder is the library API's explicit
@@ -69,10 +69,19 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onMerged }: Pro
         return Array.from({ length: Math.min(50, row.quantity) }, () => file.id);
       });
       if (ids.length > 50) throw new Error('На одну пластину можно собрать не больше 50 объектов');
+      // A one-letter order is already a valid project. Do not force it through
+      // the merge endpoint (which correctly requires two source projects),
+      // and, more importantly, do not create a disposable copy that could
+      // lose the designer's per-object metadata.
+      if (ids.length === 1) {
+        const file = byStem.get(wanted[0].key.trim().toUpperCase())!;
+        return { id: file.id, filename: file.filename, temporary: false };
+      }
       const label = wanted.map((row) => `${row.key.trim().toUpperCase()}${row.quantity > 1 ? `x${row.quantity}` : ''}`).join('-');
-      return api.mergeLibraryFilesOnPlate(ids, `${label}.3mf`);
+      const merged = await api.mergeLibraryFilesOnPlate(ids, `${label}.3mf`);
+      return { ...merged, temporary: true };
     },
-    onSuccess: (file) => onMerged(file),
+    onSuccess: (file) => onProject(file),
   });
 
   const update = (index: number, patch: Partial<Item>) => {
