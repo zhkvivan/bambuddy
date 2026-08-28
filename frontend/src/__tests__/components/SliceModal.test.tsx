@@ -788,6 +788,34 @@ describe('SliceModal', () => {
     });
   });
 
+  it('sends copies on plate and locks auto-arrange for project 3MF files', async () => {
+    mockApi.sliceLibraryFile.mockResolvedValue({
+      job_id: 42,
+      status: 'pending',
+      status_url: '/api/v1/slice-jobs/42',
+    });
+
+    renderWithTracker({
+      source: { kind: 'libraryFile', id: 100, filename: 'Letter-A.3mf' },
+      onClose: vi.fn(),
+    });
+
+    await waitFor(() => expect(screen.getByText('My Custom X1C')).toBeDefined());
+
+    const copies = screen.getByRole('spinbutton', { name: /Copies on plate/ });
+    fireEvent.change(copies, { target: { value: '3' } });
+
+    const arrange = screen.getByRole('checkbox', { name: /Auto-arrange on the plate/ }) as HTMLInputElement;
+    expect(arrange.checked).toBe(true);
+    expect(arrange.disabled).toBe(true);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /^Slice$/ }));
+    await waitFor(() => {
+      const [, body] = vi.mocked(mockApi.sliceLibraryFile).mock.calls[0];
+      expect(body).toHaveProperty('copies_on_plate', 3);
+    });
+  });
+
   it('lets the user override the default and pick a Standard preset', async () => {
     const onClose = vi.fn();
     mockApi.sliceLibraryFile.mockResolvedValue({

@@ -1778,6 +1778,9 @@ export interface SliceRequest {
   // values, so they apply on the embedded-settings path too.
   auto_orient?: boolean;
   auto_arrange?: boolean;
+  // Total copies of each model instance on the selected plate. Project 3MF
+  // only; the backend creates the instances and forces auto-arrange.
+  copies_on_plate?: number;
 }
 
 // GET /api/v1/slicer/presets — unified listing across cloud / local / standard.

@@ -4001,6 +4001,18 @@ async def _run_slicer_with_fallback(
         # didn't touch) still drive the slice.
         primary_bytes = _sanitize_project_settings_sentinels(primary_bytes)
 
+        if request.copies_on_plate > 1:
+            from backend.app.services.three_mf_instances import duplicate_plate_instances
+
+            try:
+                primary_bytes = duplicate_plate_instances(
+                    primary_bytes,
+                    copies=request.copies_on_plate,
+                    plate=request.plate or 1,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
         # #2622: the process settings the file's designer moved off the stock
         # preset. Read once — the support patch below needs to know which of
         # them the user was shown, and the carry after it needs their values.
@@ -4091,7 +4103,7 @@ async def _run_slicer_with_fallback(
     # is a union with the cross-class decision above — a user opt-out must
     # not be able to switch off the flag that keeps a class-crossing slice
     # from crashing — while orient is user-driven only.
-    arrange_flag = cross_class_arrange or request.auto_arrange
+    arrange_flag = cross_class_arrange or request.auto_arrange or request.copies_on_plate > 1
     orient_flag = request.auto_orient
     # When this slice is dispatcher-tracked, generate a request_id so
     # the sidecar publishes progress under it, and wire a callback that

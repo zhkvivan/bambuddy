@@ -269,6 +269,7 @@ export function SliceModal({ source, onClose }: SliceModalProps) {
   // them — these act on the geometry, whichever config drives the slice.
   const [autoOrient, setAutoOrient] = useState(false);
   const [autoArrange, setAutoArrange] = useState(false);
+  const [copiesOnPlate, setCopiesOnPlate] = useState(1);
 
   // #2622: process settings the designer changed away from the stock preset,
   // carried onto the picked process profile so a cross-printer re-slice keeps
@@ -697,6 +698,7 @@ export function SliceModal({ source, onClose }: SliceModalProps) {
       // them keeps the request identical to what older clients send.
       ...(autoOrient ? { auto_orient: true } : {}),
       ...(autoArrange ? { auto_arrange: true } : {}),
+      ...(copiesOnPlate > 1 ? { copies_on_plate: copiesOnPlate } : {}),
     };
   }
 
@@ -996,6 +998,24 @@ export function SliceModal({ source, onClose }: SliceModalProps) {
                   actions on the geometry, so they work regardless of where
                   the print config comes from. */}
               <div className="flex flex-col gap-2">
+                {source.filename.toLowerCase().endsWith('.3mf') && (
+                  <label className="flex flex-col gap-1 text-sm text-bambu-gray">
+                    <span>{t('slice.copiesOnPlate')}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={copiesOnPlate}
+                      onChange={(e) => {
+                        const value = Number.parseInt(e.target.value, 10);
+                        setCopiesOnPlate(Number.isFinite(value) ? Math.min(50, Math.max(1, value)) : 1);
+                      }}
+                      disabled={isEnqueuing}
+                      className="w-24 rounded border border-bambu-dark-tertiary bg-bambu-dark px-3 py-2 text-bambu-white"
+                    />
+                    <span className="text-xs text-bambu-gray/70">{t('slice.copiesOnPlateHint')}</span>
+                  </label>
+                )}
                 <label className="flex items-start gap-2 text-sm text-bambu-gray cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -1014,9 +1034,9 @@ export function SliceModal({ source, onClose }: SliceModalProps) {
                 <label className="flex items-start gap-2 text-sm text-bambu-gray cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    checked={autoArrange}
+                    checked={autoArrange || copiesOnPlate > 1}
                     onChange={(e) => setAutoArrange(e.target.checked)}
-                    disabled={isEnqueuing}
+                    disabled={isEnqueuing || copiesOnPlate > 1}
                     className="mt-0.5 cursor-pointer"
                   />
                   <span>

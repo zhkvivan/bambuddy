@@ -4454,6 +4454,8 @@ export default {
     autoOrientHint: 'Let the slicer turn each object onto its best printing side first. Overrides the way the model was laid down in the file.',
     autoArrange: 'Auto-arrange on the plate',
     autoArrangeHint: 'Let the slicer position the objects so they no longer overlap. Replaces the layout the file came with.',
+    copiesOnPlate: 'Copies on plate',
+    copiesOnPlateHint: 'Create this many copies of every object on the selected plate. Copies are arranged automatically.',
     enqueuing: 'Submitting slice job…',
     queued: 'Queued…',
     failed: 'Slicing failed. Check the slicer sidecar logs.',

@@ -191,6 +191,22 @@ class SliceRequest(BaseModel):
             "embedded-settings path too (#2548)."
         ),
     )
+    copies_on_plate: int = Field(
+        default=1,
+        ge=1,
+        le=50,
+        description=(
+            "Desired number of each model instance on the selected plate. "
+            "Project 3MF only. Values above one add instances before slicing "
+            "and force auto-arrange so the overlapping copies are packed safely."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_copies_plate(self) -> "SliceRequest":
+        if self.copies_on_plate > 1 and self.plate == 0:
+            raise ValueError("copies_on_plate requires one specific plate, not plate=0")
+        return self
 
     @model_validator(mode="after")
     def normalise_preset_refs(self) -> "SliceRequest":
