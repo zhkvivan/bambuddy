@@ -174,6 +174,8 @@ import { PlateClearedIcon } from '../components/icons/PlateClearedIcon';
 import { SkipObjectsModal, SkipObjectsIcon } from '../components/SkipObjectsModal';
 import { FileUploadModal } from '../components/FileUploadModal';
 import { PrintModal } from '../components/PrintModal';
+import { SliceModal } from '../components/SliceModal';
+import { PrinterLibraryPrintModal } from '../components/PrinterLibraryPrintModal';
 import { PrinterInfoModal } from '../components/PrinterInfoModal';
 import { FeedDirectionModal } from '../components/FeedDirectionModal';
 import { getAmsLabel, getGlobalTrayId, getFillBarColor, getSpoolmanFillLevel, getFallbackSpoolTag, installedNozzleDiameters, isBambuLabSpool, resolveSlotNozzleDiameter, resolveSlotExtruder, formatSlotLabel, FTS_INLET_SIDE } from '../utils/amsHelpers';
@@ -2200,10 +2202,28 @@ function PrinterCard({
   const [showResumeConfirm, setShowResumeConfirm] = useState(false);
   const [showSkipObjectsModal, setShowSkipObjectsModal] = useState(false);
   const [showUploadForPrint, setShowUploadForPrint] = useState(false);
+  const [showLibraryPrint, setShowLibraryPrint] = useState(false);
+  const [librarySliceFile, setLibrarySliceFile] = useState<{ id: number; filename: string } | null>(null);
+  const [librarySliceJobId, setLibrarySliceJobId] = useState<number | null>(null);
+  const [printAfterSlice, setPrintAfterSlice] = useState<{ id: number; filename: string } | null>(null);
   const [showPrinterInfo, setShowPrinterInfo] = useState(false);
   const [showDiagnostic, setShowDiagnostic] = useState(false);
   const closePrinterInfo = useCallback(() => setShowPrinterInfo(false), []);
   const [printAfterUpload, setPrintAfterUpload] = useState<{ id: number; filename: string } | null>(null);
+  const librarySliceJobQuery = useQuery({
+    queryKey: ['printer-library-slice-job', librarySliceJobId],
+    queryFn: () => api.getSliceJob(librarySliceJobId!),
+    enabled: librarySliceJobId != null,
+    refetchInterval: (query) => query.state.data?.status === 'completed' || query.state.data?.status === 'failed' ? false : 1000,
+  });
+  useEffect(() => {
+    const job = librarySliceJobQuery.data;
+    if (!job || job.status === 'pending' || job.status === 'running') return;
+    setLibrarySliceJobId(null);
+    if (job.status === 'completed' && job.result && 'library_file_id' in job.result) {
+      setPrintAfterSlice({ id: job.result.library_file_id, filename: job.result.name });
+    }
+  }, [librarySliceJobQuery.data]);
   // AMS drying popover state: which AMS unit has the popover open
   const [dryingPopoverAmsId, setDryingPopoverAmsId] = useState<number | null>(null);
   const [dryingPopoverModuleType, setDryingPopoverModuleType] = useState<string>('n3f');
@@ -6633,7 +6653,7 @@ function PrinterCard({
                     the two routes into this flow disagreeing. */}
                 <Button
                   size="sm"
-                  onClick={() => setShowUploadForPrint(true)}
+                  onClick={() => setShowLibraryPrint(true)}
                   disabled={!hasPermission('library:upload') || !hasPermission('queue:create')}
                   title={
                     !hasPermission('library:upload')
@@ -6699,6 +6719,31 @@ function PrinterCard({
         />
       )}
 
+      {showLibraryPrint && (
+        <PrinterLibraryPrintModal
+          printerName={printer.name}
+          onClose={() => setShowLibraryPrint(false)}
+          onMerged={(file) => {
+            setShowLibraryPrint(false);
+            setLibrarySliceFile(file);
+          }}
+        />
+      )}
+
+      {librarySliceFile && (
+        <SliceModal
+          source={{ kind: 'libraryFile', id: librarySliceFile.id, filename: librarySliceFile.filename }}
+          initialAutoArrange
+          initialPrinterPresetName={`Bambu Lab ${printer.model} 0.4 nozzle`}
+          onSliceQueued={setLibrarySliceJobId}
+          onClose={() => {
+            const temporaryId = librarySliceFile.id;
+            setLibrarySliceFile(null);
+            api.discardMergedLibraryFile(temporaryId).catch(() => {});
+          }}
+        />
+      )}
+
       {/* Print Modal (after upload) */}
       {printAfterUpload && (
         <PrintModal
@@ -6709,6 +6754,17 @@ function PrinterCard({
           onClose={() => setPrintAfterUpload(null)}
           onSuccess={() => setPrintAfterUpload(null)}
           cleanupLibraryAfterDispatch
+        />
+      )}
+
+      {printAfterSlice && (
+        <PrintModal
+          mode="create"
+          libraryFileId={printAfterSlice.id}
+          archiveName={printAfterSlice.filename}
+          initialSelectedPrinterIds={[printer.id]}
+          onClose={() => setPrintAfterSlice(null)}
+          onSuccess={() => setPrintAfterSlice(null)}
         />
       )}
 

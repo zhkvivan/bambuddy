@@ -52,6 +52,11 @@ interface SliceModalProps {
   source: SliceSource;
   onClose: () => void;
   initialAutoArrange?: boolean;
+  /** Printer picked by a printer-first workflow. */
+  initialPrinterPresetName?: string;
+  /** Lets a printer-first caller continue directly to the print confirmation
+   * once the background slice has produced its library file. */
+  onSliceQueued?: (jobId: number) => void;
 }
 
 function toRefValue(ref: PresetRef | null): string {
@@ -216,7 +221,7 @@ function colourInputValue(raw: string | null | undefined): string {
     : SLICER_DEFAULT_COLOUR;
 }
 
-export function SliceModal({ source, onClose, initialAutoArrange = false }: SliceModalProps) {
+export function SliceModal({ source, onClose, initialAutoArrange = false, initialPrinterPresetName, onSliceQueued }: SliceModalProps) {
   const { t } = useTranslation();
   const { trackJob } = useSliceJobTracker();
   const queryClient = useQueryClient();
@@ -574,13 +579,14 @@ export function SliceModal({ source, onClose, initialAutoArrange = false }: Slic
         embeddedModel ? name.toUpperCase().includes(` ${embeddedModel} `) : false,
       );
       setPrinterPreset(
-        findPresetByName(data, 'printer', preferredForSource)
+        findPresetByName(data, 'printer', initialPrinterPresetName)
+          ?? findPresetByName(data, 'printer', preferredForSource)
           ?? findPresetByName(data, 'printer', embeddedPrinter)
           ?? pickDefault(data, 'printer'),
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presetsQuery.data, embeddedPrinter]);
+  }, [presetsQuery.data, embeddedPrinter, initialPrinterPresetName]);
 
   // Process pre-pick / re-pick (#1325): defaults to a process compatible with
   // the selected printer, and re-defaults when a printer change leaves the
@@ -665,6 +671,7 @@ export function SliceModal({ source, onClose, initialAutoArrange = false }: Slic
     },
     onSuccess: (enqueue) => {
       trackJob(enqueue.job_id, source.kind, source.filename);
+      onSliceQueued?.(enqueue.job_id);
       onClose();
     },
     onError: (err: unknown) => {
