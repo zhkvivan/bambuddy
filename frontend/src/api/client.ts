@@ -7351,6 +7351,8 @@ export const api = {
     }),
   deleteLibraryFile: (id: number) =>
     request<{ status: string; message: string; trashed: boolean }>(`/library/files/${id}`, { method: 'DELETE' }),
+  discardMergedLibraryFile: (id: number) =>
+    request<{ status: string }>(`/library/files/${id}/discard-merged`, { method: 'DELETE' }),
 
   // ========== Library Trash (#1008) ==========
   previewLibraryPurge: (olderThanDays: number, includeNeverPrinted: boolean = true) =>

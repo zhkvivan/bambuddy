@@ -5249,6 +5249,36 @@ async def delete_file(
     return {"status": "success", "message": "File moved to trash", "trashed": True}
 
 
+@router.delete("/files/{file_id}/discard-merged")
+async def discard_temporary_merged_file(
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth_result: tuple[User | None, bool] = Depends(
+        require_ownership_permission(Permission.LIBRARY_DELETE_ALL, Permission.LIBRARY_DELETE_OWN)
+    ),
+):
+    """Permanently remove a transient project created by merge-on-plate.
+
+    This deliberately bypasses the trash: cancelling the slice dialog should
+    leave the library exactly as it was before the transient project existed.
+    The source_type guard prevents this endpoint from deleting normal uploads.
+    """
+    user, can_modify_all = auth_result
+    result = await db.execute(LibraryFile.active().where(LibraryFile.id == file_id))
+    file = result.scalar_one_or_none()
+    if file is None:
+        return {"status": "success"}
+    if file.source_type != "merged":
+        raise HTTPException(status_code=400, detail="Only temporary merged files can be discarded")
+    if not can_modify_all and file.created_by_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only discard your own merged files")
+
+    from backend.app.services.library_trash import library_trash_service
+
+    await library_trash_service.hard_delete_now(db, file)
+    return {"status": "success"}
+
+
 # ============ File Content Endpoints ============
 
 

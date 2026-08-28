@@ -1024,6 +1024,7 @@ export function FileManagerPage() {
   const [printFile, setPrintFile] = useState<LibraryFileListItem | null>(null);
   const [sliceFile, setSliceFile] = useState<{ id: number; filename: string } | null>(null);
   const [arrangeSliceFile, setArrangeSliceFile] = useState(false);
+  const [temporaryMergedFileId, setTemporaryMergedFileId] = useState<number | null>(null);
   // Slicer Pipelines (#1425 PR B) — file gets "Run with pipeline" action.
   const [runPipelineFile, setRunPipelineFile] = useState<LibraryFileListItem | null>(null);
   const [renameItem, setRenameItem] = useState<{ type: 'file' | 'folder'; id: number; name: string } | null>(null);
@@ -1606,6 +1607,7 @@ export function FileManagerPage() {
       const merged = await api.getLibraryFile(result.id);
       setSelectedFiles([]);
       setArrangeSliceFile(true);
+      setTemporaryMergedFileId(result.id);
       setSliceFile(merged);
       showToast(t('fileManager.mergeOnPlate.success'), 'success');
     },
@@ -2902,7 +2904,20 @@ export function FileManagerPage() {
         <SliceModal
           source={{ kind: 'libraryFile', id: sliceFile.id, filename: sliceFile.filename }}
           initialAutoArrange={arrangeSliceFile}
-          onClose={() => { setSliceFile(null); setArrangeSliceFile(false); }}
+          onClose={() => {
+            const discardId = temporaryMergedFileId;
+            setSliceFile(null);
+            setArrangeSliceFile(false);
+            setTemporaryMergedFileId(null);
+            if (discardId != null) {
+              api.discardMergedLibraryFile(discardId)
+                .then(() => {
+                  queryClient.invalidateQueries({ queryKey: ['library-files'] });
+                  queryClient.invalidateQueries({ queryKey: ['library-stats'] });
+                })
+                .catch((error: Error) => showToast(error.message, 'error'));
+            }
+          }}
         />
       )}
 
