@@ -84,6 +84,22 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
     onSuccess: (file) => onProject(file),
   });
 
+  const submit = () => {
+    if (!merge.isPending && !isLoading) merge.mutate();
+  };
+
+  // This form is primarily keyboard-driven: Enter adds the next letter,
+  // while Cmd+Enter is the familiar "submit the whole order" shortcut.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || !event.metaKey || event.repeat) return;
+      event.preventDefault();
+      submit();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [merge.isPending, isLoading, rows, files]);
+
   const update = (index: number, patch: Partial<Item>) => {
     setRows((current) => current.map((row, i) => i === index ? { ...row, ...patch } : row));
   };
@@ -115,7 +131,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
               <div className="space-y-2">
                 {rows.map((row, index) => (
                   <div className="flex items-center gap-2" key={index}>
-                    <input ref={(element) => { inputRefs.current[index] = element; }} value={row.key} maxLength={40} onChange={(event) => update(index, { key: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addRow(); } }} placeholder="Буква или имя модели" className="min-w-0 flex-1 rounded-lg border border-bambu-dark-tertiary bg-bambu-dark px-3 py-2 text-white outline-none focus:border-bambu-green" />
+                    <input ref={(element) => { inputRefs.current[index] = element; }} value={row.key} maxLength={40} onChange={(event) => update(index, { key: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter' && !event.metaKey) { event.preventDefault(); addRow(); } }} placeholder="Буква или имя модели" className="min-w-0 flex-1 rounded-lg border border-bambu-dark-tertiary bg-bambu-dark px-3 py-2 text-white outline-none focus:border-bambu-green" />
                     <Button variant="secondary" size="sm" onClick={() => update(index, { quantity: Math.max(1, row.quantity - 1) })}><Minus className="h-4 w-4" /></Button>
                     <span className="w-7 text-center text-white">{row.quantity}</span>
                     <Button variant="secondary" size="sm" onClick={() => update(index, { quantity: Math.min(50, row.quantity + 1) })}><Plus className="h-4 w-4" /></Button>
@@ -140,7 +156,7 @@ export function PrinterLibraryPrintModal({ printerName, onClose, onProject }: Pr
           )}
           {merge.error && <p className="mt-4 text-sm text-red-400">{merge.error.message}</p>}
         </div>
-        <div className="flex justify-end gap-3 border-t border-bambu-dark-tertiary px-6 py-4"><Button variant="secondary" onClick={onClose}>Отмена</Button><Button onClick={() => merge.mutate()} disabled={merge.isPending || isLoading}>{merge.isPending ? 'Собираем…' : 'Собрать на одну пластину'}</Button></div>
+        <div className="flex justify-end gap-3 border-t border-bambu-dark-tertiary px-6 py-4"><Button variant="secondary" onClick={onClose}>Отмена</Button><Button onClick={submit} disabled={merge.isPending || isLoading}>{merge.isPending ? 'Собираем…' : 'Собрать на одну пластину'}</Button></div>
       </div>
     </div>
   );
