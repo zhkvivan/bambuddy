@@ -69,7 +69,8 @@ interface SliceModalProps {
   initialFilamentPresetPrefix?: string;
   /** Lets a printer-first caller continue directly to the print confirmation
    * once the background slice has produced its library file. */
-  onSliceQueued?: (jobId: number) => void;
+  /** `review` opens the normal print settings; `direct` queues with defaults. */
+  onSliceQueued?: (jobId: number, action: 'review' | 'direct') => void;
 }
 
 function toRefValue(ref: PresetRef | null): string {
@@ -688,16 +689,16 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
   }, [filamentSlots]);
 
   const enqueueMutation = useMutation({
-    mutationFn: async (plate: number | null) => {
+    mutationFn: async ({ plate, action }: { plate: number | null; action: 'review' | 'direct' }) => {
       const body = buildSliceBody(plate);
       if (source.kind === 'libraryFile') {
-        return api.sliceLibraryFile(source.id, body);
+        return { enqueue: await api.sliceLibraryFile(source.id, body), action };
       }
-      return api.sliceArchive(source.id, body);
+      return { enqueue: await api.sliceArchive(source.id, body), action };
     },
-    onSuccess: (enqueue) => {
+    onSuccess: ({ enqueue, action }) => {
       trackJob(enqueue.job_id, source.kind, source.filename);
-      onSliceQueued?.(enqueue.job_id);
+      onSliceQueued?.(enqueue.job_id, action);
       onClose();
     },
     onError: (err: unknown) => {
@@ -1306,22 +1307,34 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
               // ``--slice 0`` to the BS CLI which produces a single 3MF
               // with one ``Metadata/plate_N.gcode`` entry per plate.
               const platePayload = sliceAllPlates ? 0 : selectedPlate;
-              enqueueMutation.mutate(platePayload);
+              enqueueMutation.mutate({ plate: platePayload, action: 'review' });
             }}
             disabled={!isReady || isEnqueuing}
-            className="px-3 py-1.5 text-sm rounded-md bg-bambu-green hover:bg-bambu-green/90 text-bambu-dark font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-3 py-1.5 text-sm rounded-md border border-bambu-green text-bambu-green hover:bg-bambu-green/10 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isEnqueuing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 {t('slice.enqueuing')}
               </>
-            ) : sliceAllPlates ? (
-              t('slice.actionAll', { count: totalPlateCount })
             ) : (
-              t('slice.action')
+              'Нарезать и посмотреть параметры'
             )}
           </button>
+          {onSliceQueued && (
+            <button
+              type="button"
+              onClick={() => {
+                setErrorMessage(null);
+                const platePayload = sliceAllPlates ? 0 : selectedPlate;
+                enqueueMutation.mutate({ plate: platePayload, action: 'direct' });
+              }}
+              disabled={!isReady || isEnqueuing}
+              className="px-3 py-1.5 text-sm rounded-md bg-bambu-green hover:bg-bambu-green/90 text-bambu-dark font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Нарезать и печатать сразу
+            </button>
+          )}
         </div>
       </div>
     </div>
