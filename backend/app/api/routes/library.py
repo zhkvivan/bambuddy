@@ -3001,6 +3001,8 @@ async def get_library_file_plates(
     # Offered in the SliceModal so a cross-printer re-slice can carry them
     # instead of silently losing them to the picked process profile.
     design_overrides: list[dict] = []
+    adaptive_layer_object_count = 0
+    adaptive_layer_profile_count = 0
 
     try:
         with zipfile.ZipFile(file_path, "r") as zf:
@@ -3014,6 +3016,26 @@ async def get_library_file_plates(
                     ]
                 except (ValueError, OSError, KeyError):
                     design_overrides = []
+
+            # Adaptive / variable layer heights are per-part data, stored in a
+            # separate text entry rather than project_settings.config. Expose a
+            # compact audit count so the SliceModal can reassure the operator
+            # without confusing it with the "use embedded settings" checkbox.
+            if "Metadata/layer_heights_profile.txt" in namelist and "Metadata/model_settings.config" in namelist:
+                profile_ids = set(re.findall(
+                    r"^object_id=([^|]+)\|",
+                    zf.read("Metadata/layer_heights_profile.txt").decode("utf-8", errors="replace"),
+                    flags=re.MULTILINE,
+                ))
+                model_root_for_layers = ET.fromstring(zf.read("Metadata/model_settings.config").decode("utf-8"))
+                part_ids = {
+                    part.get("id")
+                    for obj in model_root_for_layers.findall(".//object")
+                    for part in obj.findall("part")
+                    if part.get("id")
+                }
+                adaptive_layer_object_count = len(profile_ids & part_ids)
+                adaptive_layer_profile_count = len(profile_ids)
 
             # Find all plate gcode files to determine available plates
             gcode_files = [n for n in namelist if n.startswith("Metadata/plate_") and n.endswith(".gcode")]
@@ -3243,6 +3265,8 @@ async def get_library_file_plates(
         "embedded_printer": embedded_presets["printer"],
         "embedded_process": embedded_presets["process"],
         "design_overrides": design_overrides,
+        "adaptive_layer_object_count": adaptive_layer_object_count,
+        "adaptive_layer_profile_count": adaptive_layer_profile_count,
     }
 
 

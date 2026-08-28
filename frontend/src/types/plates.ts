@@ -44,6 +44,10 @@ interface EmbeddedPresets {
   // losing them to the picked process profile. Empty for STL, OrcaSlicer
   // files, and older exports that predate the field.
   design_overrides?: DesignOverride[];
+  // Number of model parts whose variable/adaptive layer-height profile is
+  // present in the 3MF. This is separate from embedded project settings.
+  adaptive_layer_object_count?: number;
+  adaptive_layer_profile_count?: number;
 }
 
 // One process setting the designer deviated on. `printer_coupled` marks the

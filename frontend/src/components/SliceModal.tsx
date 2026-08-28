@@ -543,6 +543,8 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
     [platesQuery.data],
   );
   const embeddedProcess = platesQuery.data?.embedded_process ?? null;
+  const adaptiveLayerObjectCount = platesQuery.data?.adaptive_layer_object_count ?? 0;
+  const adaptiveLayerProfileCount = platesQuery.data?.adaptive_layer_profile_count ?? 0;
 
   // "Slice as designed" is offered only when the source carries embedded
   // settings (a real project 3MF, not an STL) AND the picked printer matches
@@ -1027,6 +1029,12 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
                     </span>
                   </span>
                 </label>
+              )}
+              {adaptiveLayerProfileCount > 0 && (
+                <p className="rounded border border-bambu-green/30 bg-bambu-green/10 px-3 py-2 text-xs text-bambu-green">
+                  Сохранены adaptive / variable layer height: {adaptiveLayerObjectCount} из {adaptiveLayerProfileCount} объектов.
+                  Эта настройка сохраняется отдельно от «Использовать встроенные настройки файла».
+                </p>
               )}
               <PresetDropdown
                 label={t('slice.process')}
