@@ -448,6 +448,43 @@ function SortableQueueItem({
       : null;
 
   const isMobileSelectable = isPending && onToggleSelect;
+  // Every ordinary queue item has a durable G-code source.  Let the plate
+  // image be the direct visual affordance for inspecting that exact source,
+  // without making the operator hunt through the File Manager first.
+  const viewerPath = item.library_file_id
+    ? `/gcode-viewer?library_file=${item.library_file_id}${item.plate_id != null ? `&plate=${item.plate_id}` : ''}`
+    : item.archive_id
+      ? `/gcode-viewer?archive=${item.archive_id}${item.plate_id != null ? `&plate=${item.plate_id}` : ''}`
+      : null;
+  const thumbnail = (
+    <div className="w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0 bg-bambu-dark rounded-lg overflow-hidden">
+      {item.archive_thumbnail ? (
+        <img
+          src={
+            item.plate_id != null
+              ? api.getArchivePlateThumbnail(item.archive_id!, item.plate_id)
+              : api.getArchiveThumbnail(item.archive_id!)
+          }
+          alt=""
+          className="w-full h-full object-cover"
+        />
+      ) : item.library_file_thumbnail ? (
+        <img
+          src={
+            item.plate_id != null
+              ? api.getLibraryFilePlateThumbnail(item.library_file_id!, item.plate_id)
+              : api.getLibraryFileThumbnailUrl(item.library_file_id!)
+          }
+          alt=""
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-bambu-gray">
+          <Layers className="w-5 h-5 sm:w-6 sm:h-6" />
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -545,34 +582,18 @@ function SortableQueueItem({
           <div className="hidden sm:block w-8 shrink-0" />
         )}
 
-        {/* Thumbnail - use plate-specific thumbnail if plate_id is set */}
-        <div className="w-10 h-10 sm:w-14 sm:h-14 flex-shrink-0 bg-bambu-dark rounded-lg overflow-hidden">
-          {item.archive_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getArchivePlateThumbnail(item.archive_id!, item.plate_id)
-                  : api.getArchiveThumbnail(item.archive_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : item.library_file_thumbnail ? (
-            <img
-              src={
-                item.plate_id != null
-                  ? api.getLibraryFilePlateThumbnail(item.library_file_id!, item.plate_id)
-                  : api.getLibraryFileThumbnailUrl(item.library_file_id!)
-              }
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-bambu-gray">
-              <Layers className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
-          )}
-        </div>
+        {/* Thumbnail opens the rendered G-code for this exact queue source. */}
+        {viewerPath ? (
+          <Link
+            to={viewerPath}
+            onClick={(event) => event.stopPropagation()}
+            title={t('fileManager.preview3d')}
+            aria-label={t('fileManager.preview3d')}
+            className="rounded-lg hover:ring-2 hover:ring-bambu-green focus:outline-none focus:ring-2 focus:ring-bambu-green transition-shadow"
+          >
+            {thumbnail}
+          </Link>
+        ) : thumbnail}
 
         {/* Info */}
         <div className="flex-1 min-w-0">
