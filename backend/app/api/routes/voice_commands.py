@@ -64,7 +64,7 @@ class VoiceCommandResponse(BaseModel):
 def _printer_has_ams(printer_id: int) -> bool:
     """Use the printer's live Bambuddy state, never the voice client's claim."""
     client = printer_manager._clients.get(printer_id)  # live state owned by manager
-    raw = client.state.raw_data if client and client.state else {}
+    raw = client.state.raw_data if client and client.state else printer_manager.last_known_trays(printer_id)
     return isinstance((raw or {}).get("ams"), list)
 
 
