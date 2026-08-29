@@ -3505,7 +3505,15 @@ async def get_library_file_filament_requirements(
             if not filaments:
                 project_filaments = extract_project_filaments_from_3mf(zf)
                 used_slot_ids: set[int] = set()
-                if project_filaments and plate_id is not None:
+                # A single project slot is necessarily the slot the plate
+                # prints with.  Do not make the operator wait for a real
+                # preview slice just to rediscover that fact: the SliceModal
+                # can immediately show its one filament profile / AMS picker,
+                # and the only actual G-code generation happens after the
+                # user presses Slice.  Multi-slot projects still need the
+                # preview because only the slicer knows which painted slots
+                # the selected plate consumes.
+                if len(project_filaments) > 1 and plate_id is not None:
                     preview = await _try_preview_slice_filaments(
                         db,
                         kind="library_file",
