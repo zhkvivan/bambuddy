@@ -25,6 +25,7 @@ from backend.app.models.printer import Printer
 from backend.app.models.user import User
 from backend.app.schemas.print_queue import PrintQueueItemCreate
 from backend.app.schemas.slicer import PresetRef, SliceRequest
+from backend.app.services.design_settings import extract_design_process_overrides
 from backend.app.services.printer_manager import printer_manager
 from backend.app.services.slicer_3mf_convert import extract_source_printer_model
 from backend.app.services.three_mf_merge import merge_projects_on_plate
@@ -126,7 +127,10 @@ def _slice_presets_for(printer: Printer) -> tuple[PresetRef, PresetRef, PresetRe
     is_p1s = printer.model.strip().upper() == "P1S"
     return (
         PresetRef(source="standard", id="Bambu Lab P1S 0.4 nozzle" if is_p1s else "Bambu Lab A1 0.4 nozzle"),
-        PresetRef(source="standard", id="0.20mm Standard @BBL P1P" if is_p1s else "0.20mm Standard @BBL A1"),
+        # The bundled P1S 0.4 setup shares Bambu Studio's X1C process
+        # profile; the P1P-labelled variant is rejected by this slicer's
+        # 3MF compatibility gate when retargeting an A1 project.
+        PresetRef(source="standard", id="0.20mm Standard @BBL X1C" if is_p1s else "0.20mm Standard @BBL A1"),
         PresetRef(source="standard", id="Bambu PLA Basic @BBL P1S 0.4 nozzle" if is_p1s else "Bambu PLA Basic @BBL A1"),
     )
 
@@ -147,6 +151,18 @@ def _can_slice_as_designed(model_bytes: bytes, printer: Printer) -> bool:
     saved recipe, including walls, infill and variable layer heights.
     """
     return normalize_printer_model(extract_source_printer_model(model_bytes)) == normalize_printer_model(printer.model)
+
+
+def _portable_design_overrides(model_bytes: bytes) -> list[str]:
+    """Keep every model setting that remains meaningful after a printer swap.
+
+    This is the no-dialog equivalent of carrying the source 3MF's design
+    settings in the SliceModal.  Variable/adaptive layer heights live in the
+    project itself; this list additionally preserves process choices such as
+    wall count, infill, supports and layer-height intent.  Kinematics, thermal
+    limits and start G-code deliberately stay with the target P1S profile.
+    """
+    return [override.key for override in extract_design_process_overrides(model_bytes) if not override.printer_coupled]
 
 
 @router.post("", response_model=VoiceCommandResponse)
@@ -257,6 +273,7 @@ async def submit_voice_command(
 
             printer_preset, process_preset, filament_preset = _slice_presets_for(printer)
             use_embedded_settings = _can_slice_as_designed(model_bytes, printer)
+            design_overrides = [] if use_embedded_settings else _portable_design_overrides(model_bytes)
             slice_result = await slice_and_persist(
                 db,
                 model_bytes=model_bytes,
@@ -274,6 +291,7 @@ async def submit_voice_command(
                     auto_arrange=len(source_files) > 1 or entry.quantity > 1,
                     copies_on_plate=entry.quantity,
                     use_embedded_settings=use_embedded_settings,
+                    design_overrides=design_overrides,
                 ),
                 current_user_id=current_user.id if current_user else None,
             )
