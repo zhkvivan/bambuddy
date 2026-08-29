@@ -37,7 +37,9 @@ router = APIRouter(prefix="/voice-commands", tags=["voice-commands"])
 class VoiceEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["print"]
+    # Voice parsers may omit the only currently supported action.  Keep the
+    # contract ergonomic while still rejecting any explicit unknown action.
+    action: Literal["print"] = "print"
     letters: list[str] = Field(min_length=1, max_length=50)
     bambuddy_printer: str = Field(min_length=1, max_length=100)
     slot: int | None = Field(default=None, ge=1, le=4)
