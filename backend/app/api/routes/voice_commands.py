@@ -26,7 +26,9 @@ from backend.app.models.user import User
 from backend.app.schemas.print_queue import PrintQueueItemCreate
 from backend.app.schemas.slicer import PresetRef, SliceRequest
 from backend.app.services.printer_manager import printer_manager
+from backend.app.services.slicer_3mf_convert import extract_source_printer_model
 from backend.app.services.three_mf_merge import merge_projects_on_plate
+from backend.app.utils.printer_models import normalize_printer_model
 
 router = APIRouter(prefix="/voice-commands", tags=["voice-commands"])
 
@@ -136,6 +138,17 @@ def _library_path(file: LibraryFile):
     return path if path.is_absolute() else Path(app_settings.base_dir) / path
 
 
+def _can_slice_as_designed(model_bytes: bytes, printer: Printer) -> bool:
+    """Only apply a project's full settings to the same printer family.
+
+    Bambu Studio's “use file settings” path includes machine-specific bed,
+    start G-code and motion parameters.  Those must never be copied from an
+    A1 project to a P1S.  On a matching machine it is exactly the operator's
+    saved recipe, including walls, infill and variable layer heights.
+    """
+    return normalize_printer_model(extract_source_printer_model(model_bytes)) == normalize_printer_model(printer.model)
+
+
 @router.post("", response_model=VoiceCommandResponse)
 async def submit_voice_command(
     command: VoiceCommandRequest,
@@ -243,6 +256,7 @@ async def submit_voice_command(
                 folder_id = model_file.folder_id
 
             printer_preset, process_preset, filament_preset = _slice_presets_for(printer)
+            use_embedded_settings = _can_slice_as_designed(model_bytes, printer)
             slice_result = await slice_and_persist(
                 db,
                 model_bytes=model_bytes,
@@ -254,8 +268,12 @@ async def submit_voice_command(
                     process_preset=process_preset,
                     filament_preset=filament_preset,
                     filament_presets=[filament_preset],
-                    auto_arrange=True,
+                    # A single saved letter stays entirely in the author's
+                    # layout.  Multi-letter words and duplicate runs need the
+                    # existing automatic placement step to prevent overlap.
+                    auto_arrange=len(source_files) > 1 or entry.quantity > 1,
                     copies_on_plate=entry.quantity,
+                    use_embedded_settings=use_embedded_settings,
                 ),
                 current_user_id=current_user.id if current_user else None,
             )
