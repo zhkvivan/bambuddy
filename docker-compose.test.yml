@@ -31,7 +31,10 @@ services:
     container_name: bambuddy-integration-test
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      # Voice-command intake is intentionally local-only.  The browser and
+      # local voice listener still use http://127.0.0.1:8001, while no LAN
+      # host can reach this experimental instance.
+      - "127.0.0.1:8001:8000"
     environment:
       - TESTING=1
       - DATA_DIR=/app/data

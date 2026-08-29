@@ -76,6 +76,7 @@ from backend.app.api.routes import (
     user_notifications,
     users,
     virtual_printers,
+    voice_commands,
     webhook,
     websocket,
 )
@@ -9701,6 +9702,7 @@ app.include_router(ha_sensors.router, prefix=app_settings.api_prefix)
 app.include_router(location_ha_sensors.router, prefix=app_settings.api_prefix)
 app.include_router(print_log.router, prefix=app_settings.api_prefix)
 app.include_router(print_queue.router, prefix=app_settings.api_prefix)
+app.include_router(voice_commands.router, prefix=app_settings.api_prefix)
 app.include_router(scheduled_dryings.router, prefix=app_settings.api_prefix)
 app.include_router(kprofiles.router, prefix=app_settings.api_prefix)
 app.include_router(notifications.router, prefix=app_settings.api_prefix)
