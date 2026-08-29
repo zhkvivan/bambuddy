@@ -6,6 +6,7 @@ file, or bypass Bambuddy's normal queue validation.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.auth import RequirePermissionIfAuthEnabled
 from backend.app.core.database import get_db
 from backend.app.core.permissions import Permission
-from backend.app.models.library import LibraryFile
+from backend.app.models.library import LibraryFile, LibraryFolder
 from backend.app.models.printer import Printer
 from backend.app.services.printer_manager import printer_manager
 
@@ -65,7 +66,18 @@ def _printer_has_ams(printer_id: int) -> bool:
     """Use the printer's live Bambuddy state, never the voice client's claim."""
     client = printer_manager._clients.get(printer_id)  # live state owned by manager
     raw = client.state.raw_data if client and client.state else printer_manager.last_known_trays(printer_id)
-    return isinstance((raw or {}).get("ams"), list)
+    ams_units = (raw or {}).get("ams")
+    return isinstance(ams_units, list) and len(ams_units) > 0
+
+
+def _printer_voice_key(name: str) -> str:
+    """Match the human voice name while ignoring UI ordering prefixes.
+
+    Operators often number their printer cards (``2 Archie``) to control
+    layout.  That number is not part of the spoken identity, but the final
+    resolved row is still Bambuddy's own active-printer record.
+    """
+    return re.sub(r"^\s*\d+\s+", "", name).strip().casefold()
 
 
 @router.post("", response_model=VoiceCommandResponse)
@@ -76,8 +88,18 @@ async def validate_voice_command(
 ):
     """Validate a structured voice command without queueing or printing anything."""
     printers = (await db.execute(select(Printer).where(Printer.is_active == True))).scalars().all()  # noqa: E712
-    printers_by_name = {printer.name.casefold(): printer for printer in printers}
-    files = (await db.execute(LibraryFile.active())).scalars().all()
+    printers_by_name = {_printer_voice_key(printer.name): printer for printer in printers}
+    # Voice JSON intentionally has no arbitrary filesystem path.  Match the
+    # normal printer-first UI's default letter set instead of letting duplicate
+    # A.3mf files from Lego / large / skin folders resolve by DB row order.
+    standard_folder = (await db.execute(
+        select(LibraryFolder).where(LibraryFolder.name.ilike("%standard%"))
+    )).scalars().first()
+    files = []
+    if standard_folder is not None:
+        files = (await db.execute(
+            LibraryFile.active().where(LibraryFile.folder_id == standard_folder.id)
+        )).scalars().all()
     letters = {
         file.filename[:-4].strip().upper(): file.filename
         for file in files
@@ -89,7 +111,7 @@ async def validate_voice_command(
         if entry.needs_clarification or entry.clarification:
             results.append(VoiceEntryResult(index=index, status="rejected", reason="Command needs clarification"))
             continue
-        printer = printers_by_name.get(entry.bambuddy_printer.strip().casefold())
+        printer = printers_by_name.get(_printer_voice_key(entry.bambuddy_printer))
         if printer is None:
             results.append(VoiceEntryResult(index=index, status="rejected", reason="Unknown or inactive printer"))
             continue
@@ -99,6 +121,9 @@ async def validate_voice_command(
             continue
         if not has_ams and entry.slot is not None:
             results.append(VoiceEntryResult(index=index, status="rejected", reason="This printer has no AMS; slot must be null", printer_id=printer.id))
+            continue
+        if standard_folder is None:
+            results.append(VoiceEntryResult(index=index, status="rejected", reason="No default Standard letter folder is configured", printer_id=printer.id))
             continue
         missing = [letter for letter in entry.letters if letter not in letters]
         if missing:
