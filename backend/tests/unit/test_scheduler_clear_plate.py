@@ -221,12 +221,12 @@ class TestSchedulerIdleCheckWithPlateCleared:
         assert scheduler._is_printer_idle(1) is False
 
     @patch("backend.app.services.print_scheduler.printer_manager")
-    def test_failed_state_idle_when_acknowledged(self, mock_pm, scheduler):
-        """FAILED with flag cleared → idle."""
+    def test_failed_state_not_idle_when_acknowledged(self, mock_pm, scheduler):
+        """FAILED requires printer recovery even after the plate is acknowledged."""
         mock_pm.is_connected.return_value = True
         mock_pm.get_status.return_value = MagicMock(state="FAILED")
         mock_pm.is_awaiting_plate_clear.return_value = False
-        assert scheduler._is_printer_idle(1) is True
+        assert scheduler._is_printer_idle(1) is False
 
     @patch("backend.app.services.print_scheduler.printer_manager")
     def test_idle_state_not_idle_when_awaiting_survives_power_cycle(self, mock_pm, scheduler):
@@ -259,11 +259,11 @@ class TestSchedulerIdleCheckWithPlateCleared:
         assert scheduler._is_printer_idle(1, require_plate_clear=False) is True
 
     @patch("backend.app.services.print_scheduler.printer_manager")
-    def test_failed_state_idle_when_require_plate_clear_disabled(self, mock_pm, scheduler):
+    def test_failed_state_not_idle_when_require_plate_clear_disabled(self, mock_pm, scheduler):
         mock_pm.is_connected.return_value = True
         mock_pm.get_status.return_value = MagicMock(state="FAILED")
         mock_pm.is_awaiting_plate_clear.return_value = True
-        assert scheduler._is_printer_idle(1, require_plate_clear=False) is True
+        assert scheduler._is_printer_idle(1, require_plate_clear=False) is False
 
     @patch("backend.app.services.print_scheduler.printer_manager")
     def test_running_state_not_idle_even_when_require_plate_clear_disabled(self, mock_pm, scheduler):

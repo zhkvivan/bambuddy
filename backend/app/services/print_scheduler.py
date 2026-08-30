@@ -3610,7 +3610,12 @@ class PrintScheduler:
             )
             return False
 
-        idle = state.state in ("IDLE", "FINISH", "FAILED")
+        # FAILED is deliberately *not* a dispatchable state.  It can mean that
+        # the printer rejected the preceding 3MF before it ever started, so
+        # treating it as idle lets the scheduler immediately send another file
+        # into a machine that still needs attention.  Wait for the printer to
+        # recover to IDLE instead.
+        idle = state.state in ("IDLE", "FINISH")
         if not idle:
             logger.debug("Printer %d: not idle — state=%s", printer_id, state.state)
         return idle
