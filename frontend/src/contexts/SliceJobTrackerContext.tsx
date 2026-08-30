@@ -25,8 +25,20 @@ interface TrackedJob {
   sourceName: string;
 }
 
+type SliceJobCompletionHandler = (state: SliceJobState) => void | Promise<void>;
+
 interface SliceJobTrackerContextValue {
-  trackJob: (id: number, kind: 'libraryFile' | 'archive', sourceName: string) => void;
+  /**
+   * Keep a short-lived slice alive across page/card re-renders.  A caller can
+   * also supply a completion handler for a follow-up that must not be lost
+   * when the modal that started the slice closes (for example direct print).
+   */
+  trackJob: (
+    id: number,
+    kind: 'libraryFile' | 'archive',
+    sourceName: string,
+    onComplete?: SliceJobCompletionHandler,
+  ) => void;
   activeJobs: TrackedJob[];
 }
 
@@ -90,6 +102,7 @@ export function SliceJobTrackerProvider({ children }: { children: ReactNode }) {
   // once per job no matter how many callers reach it — see the poll loop
   // below for how more than one used to.
   const finishedRef = useRef<Set<number>>(new Set());
+  const completionHandlersRef = useRef<Map<number, SliceJobCompletionHandler>>(new Map());
 
   const renderProgressToast = useCallback(
     (job: TrackedJob) => {
@@ -155,7 +168,12 @@ export function SliceJobTrackerProvider({ children }: { children: ReactNode }) {
   );
 
   const trackJob = useCallback(
-    (id: number, kind: 'libraryFile' | 'archive', sourceName: string) => {
+    (
+      id: number,
+      kind: 'libraryFile' | 'archive',
+      sourceName: string,
+      onComplete?: SliceJobCompletionHandler,
+    ) => {
       setActiveJobs((prev) => (prev.some((j) => j.id === id) ? prev : [...prev, { id, kind, sourceName }]));
       // Re-tracking an id re-arms it. Ids come from a database sequence so
       // this can't collide in practice; clearing here is what keeps the set
@@ -164,6 +182,7 @@ export function SliceJobTrackerProvider({ children }: { children: ReactNode }) {
       startedAtRef.current.set(id, Date.now());
       phaseRef.current.set(id, 'pending');
       progressRef.current.set(id, null);
+      if (onComplete) completionHandlersRef.current.set(id, onComplete);
       // Render the initial frame immediately so the user sees the toast
       // before the first tick lands (~1s delay otherwise).
       renderProgressToast({ id, kind, sourceName });
@@ -182,6 +201,8 @@ export function SliceJobTrackerProvider({ children }: { children: ReactNode }) {
       startedAtRef.current.delete(job.id);
       phaseRef.current.delete(job.id);
       progressRef.current.delete(job.id);
+      const completionHandler = completionHandlersRef.current.get(job.id);
+      completionHandlersRef.current.delete(job.id);
 
       // Replace the persistent progress toast with a transient
       // success/error toast (auto-dismisses after 3s, same as showToast).
@@ -218,6 +239,17 @@ export function SliceJobTrackerProvider({ children }: { children: ReactNode }) {
         setSliceError({
           name: prettifyFilename(job.sourceName),
           detail: state.error_detail || t('slice.failed'),
+        });
+      }
+
+      // The handler is intentionally invoked after the slice has reached a
+      // terminal state, from this app-level provider.  Unlike a callback kept
+      // in a printer card, it survives the SliceModal closing and any normal
+      // card refresh while the slicer is busy.
+      if (completionHandler) {
+        void Promise.resolve(completionHandler(state)).catch((error: unknown) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          showToast(detail || t('slice.failed'), 'error');
         });
       }
 

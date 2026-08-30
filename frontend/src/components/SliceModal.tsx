@@ -736,11 +736,36 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
       return { enqueue: await api.sliceArchive(source.id, body), action };
     },
     onSuccess: ({ enqueue, action }) => {
-      trackJob(enqueue.job_id, source.kind, source.filename);
       const selectedTrayIds = Object.values(physicalTrayBySlot);
       const amsMapping = selectedTrayIds.length > 0
         ? filamentSlots.map((slot) => physicalTrayBySlot[slot.slot_id] ?? -1)
         : undefined;
+      // A direct print used to rely on PrinterCard's local polling state. The
+      // card can legitimately refresh/re-render while a long slice runs,
+      // leaving a perfectly sliced file in the library but no queue item.
+      // Hand the follow-up to the app-level job tracker instead.
+      const directPrintHandler = action === 'direct' && printerId != null
+        ? async (state: Awaited<ReturnType<typeof api.getSliceJob>>) => {
+            if (state.status !== 'completed' || !state.result || !('library_file_id' in state.result)) return;
+            await api.addToQueue({
+              printer_id: printerId,
+              library_file_id: state.result.library_file_id,
+              ams_mapping: amsMapping,
+              insert_at_top: true,
+              insert_position: 1,
+              bed_levelling: 'auto',
+              flow_cali: 'auto',
+              vibration_cali: true,
+              layer_inspect: false,
+              timelapse: false,
+              nozzle_offset_cali: 'auto',
+              preheat_override: 'inherit',
+            });
+            queryClient.invalidateQueries({ queryKey: ['queue'] });
+            showToast('Нарезано и отправлено в печать', 'success');
+          }
+        : undefined;
+      trackJob(enqueue.job_id, source.kind, source.filename, directPrintHandler);
       onSliceQueued?.(enqueue.job_id, action, amsMapping);
       onClose();
     },

@@ -2206,7 +2206,6 @@ function PrinterCard({
   const [librarySliceFile, setLibrarySliceFile] = useState<{ id: number; filename: string; temporary: boolean } | null>(null);
   const [librarySliceJobId, setLibrarySliceJobId] = useState<number | null>(null);
   const [librarySliceAction, setLibrarySliceAction] = useState<'review' | 'direct'>('review');
-  const [librarySliceAmsMapping, setLibrarySliceAmsMapping] = useState<number[] | undefined>(undefined);
   const [printAfterSlice, setPrintAfterSlice] = useState<{ id: number; filename: string } | null>(null);
   const [showPrinterInfo, setShowPrinterInfo] = useState(false);
   const [showDiagnostic, setShowDiagnostic] = useState(false);
@@ -2223,31 +2222,11 @@ function PrinterCard({
     if (!job || job.status === 'pending' || job.status === 'running') return;
     setLibrarySliceJobId(null);
     if (job.status === 'completed' && job.result && 'library_file_id' in job.result) {
-      if (librarySliceAction === 'direct') {
-        api.addToQueue({
-          printer_id: printer.id,
-          library_file_id: job.result.library_file_id,
-          ams_mapping: librarySliceAmsMapping,
-          insert_at_top: true,
-          insert_position: 1,
-          bed_levelling: 'auto',
-          flow_cali: 'auto',
-          vibration_cali: true,
-          layer_inspect: false,
-          timelapse: false,
-          nozzle_offset_cali: 'auto',
-          preheat_override: 'inherit',
-        }).then(() => {
-          queryClient.invalidateQueries({ queryKey: ['queue'] });
-          showToast('Нарезано и отправлено в печать', 'success');
-        }).catch((error: Error) => {
-          showToast(error.message || 'Не удалось создать задание печати', 'error');
-        });
-      } else {
+      if (librarySliceAction !== 'direct') {
         setPrintAfterSlice({ id: job.result.library_file_id, filename: job.result.name });
       }
     }
-  }, [librarySliceJobQuery.data, librarySliceAction, librarySliceAmsMapping, printer.id, queryClient, showToast]);
+  }, [librarySliceJobQuery.data, librarySliceAction]);
   // AMS drying popover state: which AMS unit has the popover open
   const [dryingPopoverAmsId, setDryingPopoverAmsId] = useState<number | null>(null);
   const [dryingPopoverModuleType, setDryingPopoverModuleType] = useState<string>('n3f');
@@ -6761,9 +6740,8 @@ function PrinterCard({
           initialPrinterPresetName={`Bambu Lab ${printer.model} 0.4 nozzle`}
           initialFilamentPresetPrefix="Bambu PLA Basic"
           printerId={printer.id}
-          onSliceQueued={(jobId, action, amsMapping) => {
+          onSliceQueued={(jobId, action) => {
             setLibrarySliceAction(action);
-            setLibrarySliceAmsMapping(amsMapping);
             setLibrarySliceJobId(jobId);
           }}
           onClose={() => {
