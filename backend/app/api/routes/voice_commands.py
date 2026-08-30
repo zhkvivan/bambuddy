@@ -310,12 +310,19 @@ async def submit_voice_command(
     # and scheduling checks.  Sequential awaits preserve the GPT array order.
     for index, _entry, printer, _source_files, global_tray_id, sliced_file_id in sliced_sources:
         try:
+            # A voice order received while its target is already printing is
+            # normally the operator preparing the *next* colour/material. Do
+            # not surprise them by dispatching the instant the current job
+            # finishes: stage it for the normal manual-start button instead.
+            # An explicit `manual_start` still stages every voice entry, even
+            # when the printer is currently idle.
+            queue_manual_start = command.manual_start or printer_manager.is_print_active(printer.id)
             queued = await add_to_queue(
                 PrintQueueItemCreate(
                     printer_id=printer.id,
                     library_file_id=sliced_file_id,
                     ams_mapping=[global_tray_id] if global_tray_id is not None else None,
-                    manual_start=command.manual_start,
+                    manual_start=queue_manual_start,
                 ),
                 db=db,
                 current_user=current_user,
