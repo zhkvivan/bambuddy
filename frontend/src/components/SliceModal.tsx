@@ -297,6 +297,11 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
   // offered when the picked printer matches the design's target model —
   // see canUseEmbedded below.
   const [useEmbedded, setUseEmbedded] = useState(false);
+  // The normal printer-first workflow should keep a project's authored
+  // settings whenever its printer matches. Remember only an explicit user
+  // choice, so changing away from and back to the source printer doesn't
+  // accidentally turn that safe default into a forced setting.
+  const embeddedChoiceTouched = useRef(false);
 
   // Auto-orient / auto-arrange (#2548) — the GUI's two layout buttons,
   // forwarded as the slicer's --orient / --arrange CLI actions. Per-slice
@@ -598,10 +603,16 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
     return norm(selectedPrinterName) === norm(embeddedPrinter);
   }, [embeddedPrinter, embeddedProcess, selectedPrinterName]);
 
-  // Drop back to profile slicing whenever the toggle stops being offered
-  // (e.g. the user switches to a printer that doesn't match the design).
+  // Slice matching projects as designed by default. The toggle remains an
+  // escape hatch for the occasional job that deliberately needs a different
+  // process or material profile. Cross-printer jobs still always use a
+  // compatible target profile.
   useEffect(() => {
-    if (!canUseEmbedded) setUseEmbedded(false);
+    if (!canUseEmbedded) {
+      setUseEmbedded(false);
+    } else if (!embeddedChoiceTouched.current) {
+      setUseEmbedded(true);
+    }
   }, [canUseEmbedded]);
 
   // The per-key ticks follow "Use the file's built-in settings" (#2942).
@@ -1087,7 +1098,10 @@ export function SliceModal({ source, onClose, initialAutoArrange = false, initia
                   <input
                     type="checkbox"
                     checked={useEmbedded}
-                    onChange={(e) => setUseEmbedded(e.target.checked)}
+                    onChange={(e) => {
+                      embeddedChoiceTouched.current = true;
+                      setUseEmbedded(e.target.checked);
+                    }}
                     disabled={isEnqueuing}
                     className="mt-0.5 cursor-pointer"
                   />
